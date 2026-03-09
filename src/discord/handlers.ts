@@ -3,7 +3,7 @@ import { getRecentMessages, saveMessage, getSystemPrompt, updateProject } from '
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
-import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
+import { requestSelfModify, executeSelfModifyPlan, SelfModifyPlan } from '../tools/self-modify.js';
 import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
@@ -22,8 +22,8 @@ function keepTyping(channel: SendableChannel): () => void {
 }
 
 // In-memory: track if we're waiting for install approval
-// Maps channelId → { capability, reason }
-const pendingInstallRequest = new Map<string, { capability: string; reason: string }>();
+// Maps channelId → { capability, reason, plan (if already generated) }
+const pendingInstallRequest = new Map<string, { capability: string; reason: string; plan?: SelfModifyPlan }>();
 
 const pendingStagingApproval = new Map<string, {
   slug: string;
@@ -139,16 +139,21 @@ export async function handleMessage(msg: DiscordMessage) {
   if (pending) {
     if (isAffirmative(msg.content)) {
       pendingInstallRequest.delete(msg.channelId);
-      const toolId = pending.capability.toLowerCase().replace(/\s+/g, '_');
-      const plan = INSTALL_PLANS[toolId];
-      if (plan) {
-        await msg.channel.send(`On it — installing **${pending.capability}** now...`);
-        const result = await executeSelfModify(plan);
+      if (pending.plan) {
+        await msg.channel.send(`On it — shipping **${pending.capability}** now...`);
+        const result = await executeSelfModifyPlan(pending.plan);
         await msg.channel.send(result.message);
       } else {
-        await msg.channel.send(
-          `I don't have an auto-install recipe for **${pending.capability}** yet. Ask in Claude Code: "Add ${pending.capability} to Jarvis" and it'll be wired up.`
-        );
+        // No pre-generated plan — generate one now
+        await msg.channel.send(`Generating code for **${pending.capability}**...`);
+        const genResult = await requestSelfModify(pending.capability);
+        if (!genResult.success || !genResult.plan) {
+          await msg.channel.send(genResult.message);
+          return;
+        }
+        // Store the plan and ask for final confirmation
+        pendingInstallRequest.set(msg.channelId, { capability: pending.capability, reason: pending.reason, plan: genResult.plan });
+        await msg.channel.send(genResult.message);
       }
       return;
     } else if (isNegative(msg.content)) {
