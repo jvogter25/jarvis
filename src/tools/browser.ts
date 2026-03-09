@@ -1,5 +1,3 @@
-import { runShell } from './shell.js';
-
 export interface BrowseResult {
   url: string;
   title: string;
@@ -8,48 +6,31 @@ export interface BrowseResult {
 }
 
 /**
- * Navigate to a URL and extract text content using Playwright inside E2B.
- * `task` is a natural-language description of what to extract (passed as context in the script).
+ * Fetch and extract readable content from a URL using Jina.ai Reader.
+ * No API key, no sandbox, no browser install — just clean text from any URL.
+ * task: natural-language description of what to extract (logged for context).
  */
 export async function browseUrl(url: string, task: string): Promise<BrowseResult> {
-  const script = `
-// Task: ${task}
-const { chromium } = require('playwright');
-(async () => {
-  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await browser.newPage();
-  await page.goto(${JSON.stringify(url)}, { waitUntil: 'networkidle', timeout: 30000 });
-  const title = await page.title();
-  const content = await page.evaluate(() => document.body.innerText);
-  console.log(JSON.stringify({ title, content: content.slice(0, 8000) }));
-  await browser.close();
-})().catch(e => { console.error(JSON.stringify({ error: e.message })); process.exit(1); });
-`;
-
-  const result = await runShell(
-    [
-      'npm install playwright --quiet',
-      'npx playwright install chromium --with-deps',
-      'node script.js',
-    ],
-    [{ path: 'script.js', content: script }]
-  );
-
-  const lastStderr = result.stderr.split('\n').filter(l => l.trim()).at(-1) ?? '';
-  if (result.exitCode !== 0 || lastStderr.includes('"error"')) {
-    let errMsg = lastStderr;
-    try { errMsg = JSON.parse(lastStderr).error ?? lastStderr; } catch {}
-    return { url, title: '', content: '', error: errMsg };
-  }
-
-  const jsonLine = result.stdout.split('\n').reverse().find(l => l.trim().startsWith('{'));
-  if (!jsonLine) {
-    return { url, title: '', content: result.stdout, error: 'No JSON output from script' };
-  }
+  console.log(`browseUrl: ${task} — ${url}`);
   try {
-    const parsed = JSON.parse(jsonLine);
-    return { url, title: parsed.title ?? '', content: parsed.content ?? '' };
-  } catch {
-    return { url, title: '', content: result.stdout, error: 'Failed to parse script output' };
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { Accept: 'text/plain' },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!res.ok) {
+      return { url, title: '', content: '', error: `HTTP ${res.status}: ${res.statusText}` };
+    }
+
+    const text = await res.text();
+    // Jina returns "Title: ...\nURL Source: ...\n\nMarkdown Content:\n..."
+    const titleMatch = text.match(/^Title:\s*(.+)$/m);
+    const title = titleMatch?.[1]?.trim() ?? '';
+    // Strip Jina header lines, keep the content body (cap at 8000 chars)
+    const content = text.replace(/^(Title:|URL Source:|Markdown Content:)[^\n]*\n/gm, '').trim().slice(0, 8000);
+
+    return { url, title, content };
+  } catch (err) {
+    return { url, title: '', content: '', error: (err as Error).message };
   }
 }
