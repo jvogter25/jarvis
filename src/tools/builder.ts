@@ -67,7 +67,7 @@ async function createVercelProject(slug: string): Promise<string> {
   return data.id;
 }
 
-async function pollStagingUrl(vercelProjectId: string, timeoutMs = 120000): Promise<string> {
+async function pollStagingUrl(vercelProjectId: string, timeoutMs = 180000): Promise<string> {
   const token = process.env.VERCEL_TOKEN;
   if (!token) return '';
 
