@@ -8,6 +8,7 @@ import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger 
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
+import { processTrainingMaterial } from '../tools/knowledge.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -124,6 +125,48 @@ export async function handleDesignMessage(msg: DiscordMessage) {
     stopTyping();
     console.error('Error handling design message:', err);
     await msg.channel.send('⚠️ Something went wrong with the design library.');
+  }
+}
+
+export async function handleTrainingMessage(msg: DiscordMessage) {
+  if (msg.author.bot) return;
+  if (!isSendable(msg.channel)) return;
+
+  await msg.channel.sendTyping();
+  const stopTyping = keepTyping(msg.channel);
+
+  try {
+    const content = msg.content.trim();
+
+    // Parse domain from message: "sales: [content]", "marketing: [url]", etc.
+    const DOMAINS = ['sales', 'marketing', 'design', 'engineering', 'general', 'product', 'growth'];
+    const domainMatch = content.match(new RegExp(`^(${DOMAINS.join('|')})[:\\s]+(.+)`, 'is'));
+
+    if (!domainMatch) {
+      stopTyping();
+      await msg.channel.send(
+        `Tag the domain first — e.g. \`sales: [url or text]\`, \`marketing: [url]\`, \`design: [text]\`\n\nDomains: ${DOMAINS.join(', ')}`
+      );
+      return;
+    }
+
+    const domain = domainMatch[1].toLowerCase();
+    const rawContent = domainMatch[2].trim();
+
+    // Check if it's a URL
+    const urlMatch = rawContent.match(/https?:\/\/[^\s]+/);
+    const sourceUrl = urlMatch ? urlMatch[0] : undefined;
+
+    await msg.channel.send(`Reading and extracting insights from this ${domain} material...`);
+
+    const result = await processTrainingMaterial(domain, rawContent, sourceUrl);
+
+    stopTyping();
+    await msg.channel.send(result);
+  } catch (err) {
+    stopTyping();
+    console.error('Error handling training message:', err);
+    await msg.channel.send('⚠️ Failed to process training material. Check the logs.');
   }
 }
 

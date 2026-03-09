@@ -6,6 +6,7 @@ export const CHANNELS = {
   MARKETING: process.env.DISCORD_CHANNEL_MARKETING!,
   OVERNIGHT_LOG: process.env.DISCORD_CHANNEL_OVERNIGHT_LOG!,
   DESIGN_ELEMENTS: process.env.DISCORD_CHANNEL_DESIGN_ELEMENTS!,
+  TRAINING: process.env.DISCORD_CHANNEL_TRAINING!,
 };
 
 export function splitMessage(text: string, maxLen = 1900): string[] {

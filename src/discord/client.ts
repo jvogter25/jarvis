@@ -1,5 +1,5 @@
 import { Client, GatewayIntentBits, Events } from 'discord.js';
-import { handleMessage, handleDesignMessage } from './handlers.js';
+import { handleMessage, handleDesignMessage, handleTrainingMessage } from './handlers.js';
 import { CHANNELS } from './channels.js';
 
 export function createDiscordClient(): Client {
@@ -18,6 +18,8 @@ export function createDiscordClient(): Client {
   client.on(Events.MessageCreate, (msg) => {
     if (msg.channelId === CHANNELS.DESIGN_ELEMENTS) {
       handleDesignMessage(msg).catch(console.error);
+    } else if (msg.channelId === CHANNELS.TRAINING) {
+      handleTrainingMessage(msg).catch(console.error);
     } else {
       handleMessage(msg).catch(console.error);
     }
