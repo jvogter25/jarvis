@@ -191,6 +191,7 @@ export async function buildProject(
 ): Promise<BuildResult> {
   // Sanitize slug: lowercase, hyphens only
   plan.slug = plan.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  console.log(`[build] Starting build for ${plan.slug} (${plan.buildType}), ${generatedFiles.length} files`);
 
   await createProject({
     name: plan.projectName,
@@ -199,25 +200,35 @@ export async function buildProject(
     description: plan.description,
   });
   await updateProject(plan.slug, { status: 'building' });
+  console.log(`[build] Project record created in Supabase`);
 
   // Fork template
+  console.log(`[build] Forking template ${TEMPLATE_REPO}...`);
   await createRepoFromTemplate(TEMPLATE_REPO, plan.slug);
   await new Promise(r => setTimeout(r, 4000));
+  console.log(`[build] Repo forked: github.com/${OWNER}/${plan.slug}`);
 
   // Create Vercel project
+  console.log(`[build] Creating Vercel project...`);
   const vercelProjectId = await createVercelProject(plan.slug);
   await updateProject(plan.slug, { github_repo: plan.slug, vercel_project_id: vercelProjectId });
+  console.log(`[build] Vercel project created: ${vercelProjectId}`);
 
   // Create staging branch
+  console.log(`[build] Creating staging branch...`);
   await createBranch(plan.slug, 'staging');
+  console.log(`[build] Staging branch created`);
 
   // For full_app builds: run TypeScript validation loop before pushing
   let filesToPush = generatedFiles;
   if (plan.buildType === 'full_app') {
+    console.log(`[build] Running TypeScript validation...`);
     filesToPush = await runTypeScriptCheck(generatedFiles);
+    console.log(`[build] TypeScript validation complete`);
   }
 
   // Push design tokens CSS and all generated files to staging branch
+  console.log(`[build] Pushing ${filesToPush.length} files to staging branch...`);
   const tokens = await readDesignTokens();
   await upsertFile(
     plan.slug,
@@ -228,12 +239,16 @@ export async function buildProject(
   );
 
   for (const file of filesToPush) {
+    console.log(`[build] Pushing ${file.path}`);
     await upsertFile(plan.slug, file.path, file.content, `feat: build ${plan.slug}`, 'staging');
   }
+  console.log(`[build] All files pushed`);
 
   await updateProject(plan.slug, { status: 'staging' });
+  console.log(`[build] Polling for staging URL (up to 2min)...`);
   const stagingUrl = await pollStagingUrl(vercelProjectId);
   if (stagingUrl) await updateProject(plan.slug, { staging_url: stagingUrl });
+  console.log(`[build] Staging URL: ${stagingUrl || 'not ready yet'}`);
 
   return {
     slug: plan.slug,

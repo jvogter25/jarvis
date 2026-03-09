@@ -226,22 +226,28 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
     case 'build_app': {
       const { buildProject } = await import('./tools/builder.js');
-      const result = await buildProject(
-        {
-          projectName: input.project_name as string,
-          slug: input.slug as string,
-          description: input.description as string,
-          buildType: input.build_type as 'landing_page' | 'full_app',
-          targetAudience: input.target_audience as string,
-          components: input.components as string[] | undefined,
-        },
-        input.files as Array<{ path: string; content: string }>
-      );
-      return {
-        toolName: name,
-        output: `Build started for **${result.slug}**\nGitHub: ${result.githubRepo}\nStaging: ${result.stagingUrl}`,
-        stagingBuild: result,
-      };
+      try {
+        const result = await buildProject(
+          {
+            projectName: input.project_name as string,
+            slug: input.slug as string,
+            description: input.description as string,
+            buildType: input.build_type as 'landing_page' | 'full_app',
+            targetAudience: input.target_audience as string,
+            components: input.components as string[] | undefined,
+          },
+          input.files as Array<{ path: string; content: string }>
+        );
+        return {
+          toolName: name,
+          output: `Build complete for **${result.slug}**\nGitHub: ${result.githubRepo}\nStaging: ${result.stagingUrl}`,
+          stagingBuild: result,
+        };
+      } catch (err) {
+        const msg = (err as Error).message;
+        console.error(`[build_app] Failed:`, err);
+        return { toolName: name, output: `Build failed: ${msg}` };
+      }
     }
 
     default:
