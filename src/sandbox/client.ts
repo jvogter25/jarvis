@@ -29,8 +29,8 @@ export async function runInSandbox(
   // Start the server in background
   await sandbox.commands.run(startCommand, { background: true });
 
-  // Wait for the port to be ready
-  await sandbox.wait(3000);
+  // Give the server a moment to start
+  await new Promise(r => setTimeout(r, 3000));
 
   const url = `https://${sandbox.getHost(port)}`;
   return { url, sandboxId: sandbox.sandboxId };
