@@ -112,6 +112,11 @@ If fixes are needed, include corrected file objects in "fixes": [{"path": "...",
     review = { approved: true, notes: 'Review parse failed — proceeding with generated code.' };
   }
 
+  // Log a warning if reviewer flagged issues but provided no fixes
+  if (!review.approved && (!review.fixes || review.fixes.length === 0)) {
+    console.warn('[self-modify] Opus reviewer flagged issues but provided no fixes — proceeding with generated code. Review notes:', review.notes);
+  }
+
   // Apply fixes if reviewer found issues
   let finalFiles = [...generated.files];
   if (review.fixes && review.fixes.length > 0) {
@@ -243,18 +248,10 @@ export async function executeSelfModifyPlan(
 }
 
 async function addNpmDependency(packageName: string, branch?: string): Promise<void> {
-  const { Octokit } = await import('octokit');
-  const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-  const owner = process.env.GITHUB_OWNER!;
+  const { getFileContent } = await import('../github/client.js');
+  const raw = await getFileContent('jarvis', 'package.json');
+  if (!raw) throw new Error('package.json not found in jarvis repo');
 
-  const getParams = branch
-    ? { owner, repo: 'jarvis', path: 'package.json', ref: branch }
-    : { owner, repo: 'jarvis', path: 'package.json' };
-
-  const { data } = await octokit.rest.repos.getContent(getParams);
-  if (Array.isArray(data) || data.type !== 'file') throw new Error('package.json not found');
-
-  const raw = Buffer.from(data.content, 'base64').toString('utf-8');
   const pkg = JSON.parse(raw);
   pkg.dependencies[packageName] = 'latest';
 
