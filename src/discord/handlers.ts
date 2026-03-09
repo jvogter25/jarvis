@@ -5,6 +5,8 @@ import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
+import { promoteToProduction } from '../tools/builder.js';
+import { updateProject } from '../memory/supabase.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -21,6 +23,18 @@ function keepTyping(channel: SendableChannel): () => void {
 // In-memory: track if we're waiting for install approval
 // Maps channelId → { capability, reason }
 const pendingInstallRequest = new Map<string, { capability: string; reason: string }>();
+
+const pendingStagingApproval = new Map<string, {
+  slug: string;
+  stagingUrl: string;
+  vercelProjectId: string;
+}>();
+
+const SHIP_PHRASES = ['ship it', 'ship', 'deploy', 'go live', 'approve', 'push it', 'launch it'];
+function isShipApproval(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  return SHIP_PHRASES.includes(lower) || lower.startsWith('ship ');
+}
 
 const YES_WORDS = new Set(['yes', 'yeah', 'yep', 'sure', 'do it', 'go ahead', 'install it', 'ok', 'okay', 'absolutely', 'y']);
 const NO_WORDS = new Set(['no', 'nope', 'nah', 'cancel', 'nevermind', 'never mind', 'skip', 'n']);
@@ -143,6 +157,28 @@ export async function handleMessage(msg: DiscordMessage) {
     pendingInstallRequest.delete(msg.channelId);
   }
 
+  // Check if we're waiting for staging approval
+  const pendingStaging = pendingStagingApproval.get(msg.channelId);
+  if (pendingStaging) {
+    if (isShipApproval(msg.content)) {
+      pendingStagingApproval.delete(msg.channelId);
+      await msg.channel.send(`Promoting **${pendingStaging.slug}** to production...`);
+      try {
+        const productionUrl = await promoteToProduction(pendingStaging.slug);
+        await updateProject(pendingStaging.slug, { status: 'live', production_url: productionUrl });
+        await msg.channel.send(`🚀 **${pendingStaging.slug}** is live: ${productionUrl}`);
+      } catch (err) {
+        await msg.channel.send(`⚠️ Deploy failed: ${(err as Error).message}`);
+      }
+      return;
+    } else if (isNegative(msg.content)) {
+      pendingStagingApproval.delete(msg.channelId);
+      await msg.channel.send(`Keeping **${pendingStaging.slug}** in staging. Let me know when you want to ship it or want changes.`);
+      return;
+    }
+    pendingStagingApproval.delete(msg.channelId);
+  }
+
   await msg.channel.sendTyping();
   const stopTyping = keepTyping(msg.channel);
 
@@ -188,6 +224,13 @@ export async function handleMessage(msg: DiscordMessage) {
         pendingInstallRequest.set(msg.channelId, { capability, reason });
         await msg.channel.send(
           `To do that I need **${capability}** — which I don't have yet.\n\n**Reason:** ${reason}\n\nWant me to get that installed? (yes/no)`
+        );
+      }
+      if (toolResult.stagingBuild) {
+        const build = toolResult.stagingBuild;
+        pendingStagingApproval.set(msg.channelId, build);
+        await msg.channel.send(
+          `Staging ready for **${build.slug}**: ${build.stagingUrl}\n\nSay **"ship it"** to deploy to production, or tell me what to change.`
         );
       }
     }
