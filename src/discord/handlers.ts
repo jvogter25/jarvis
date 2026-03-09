@@ -3,11 +3,19 @@ import { getRecentMessages, saveMessage, getSystemPrompt } from '../memory/supab
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
+import { serveHtml } from '../sandbox/client.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
 function isSendable(channel: DiscordMessage['channel']): channel is SendableChannel {
   return 'send' in channel && 'sendTyping' in channel;
+}
+
+/** Extract first HTML block from a response if present */
+function extractHtml(text: string): string | null {
+  const match = text.match(/```html\n([\s\S]*?)```/) || text.match(/<!DOCTYPE html[\s\S]*<\/html>/i);
+  if (match) return match[1] ?? match[0];
+  return null;
 }
 
 export async function handleMessage(msg: DiscordMessage) {
@@ -35,6 +43,19 @@ export async function handleMessage(msg: DiscordMessage) {
 
     for (const chunk of splitMessage(reply)) {
       await msg.channel.send(chunk);
+    }
+
+    // If the reply contains HTML, auto-deploy it to a sandbox
+    const html = extractHtml(reply);
+    if (html && process.env.E2B_API_KEY) {
+      await msg.channel.send('🚀 Deploying to sandbox...');
+      try {
+        const { url } = await serveHtml(html);
+        await msg.channel.send(`✅ Live preview: ${url}`);
+      } catch (sandboxErr) {
+        console.error('Sandbox deploy failed:', sandboxErr);
+        await msg.channel.send('⚠️ Sandbox deploy failed — HTML is above, run it locally.');
+      }
     }
   } catch (err) {
     console.error('Error handling message:', err);
