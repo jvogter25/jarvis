@@ -1,0 +1,32 @@
+import 'dotenv/config';
+import cron from 'node-cron';
+import { createDiscordClient } from './discord/client.js';
+import { runResearchLoop } from './research/loop.js';
+import { runOvernightTraining } from './overnight/trainer.js';
+import { postMorningBriefing } from './overnight/briefing.js';
+
+async function main() {
+  console.log('Jarvis starting...');
+
+  const discord = createDiscordClient();
+  await discord.login(process.env.DISCORD_TOKEN);
+
+  // Research loop: every 6 hours
+  cron.schedule('0 */6 * * *', () => {
+    runResearchLoop(discord).catch(console.error);
+  });
+
+  // Overnight training: 2am
+  cron.schedule('0 2 * * *', () => {
+    runOvernightTraining(discord).catch(console.error);
+  });
+
+  // Morning briefing: 7am
+  cron.schedule('0 7 * * *', () => {
+    postMorningBriefing(discord).catch(console.error);
+  });
+
+  console.log('Jarvis online.');
+}
+
+main().catch(console.error);
