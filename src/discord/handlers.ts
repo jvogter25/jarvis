@@ -1,5 +1,5 @@
 import { Message as DiscordMessage, TextChannel, DMChannel, NewsChannel } from 'discord.js';
-import { getRecentMessages, saveMessage, getSystemPrompt, updateProject } from '../memory/supabase.js';
+import { getRecentMessages, saveMessage, getSystemPrompt, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
@@ -172,7 +172,14 @@ export async function handleTrainingMessage(msg: DiscordMessage) {
 
 export async function handleMessage(msg: DiscordMessage) {
   if (msg.author.bot) return;
-  if (msg.channelId !== CHANNELS.JARVIS) return;
+  let isGlobalJarvis = msg.channelId === CHANNELS.JARVIS;
+  let projectChannelConfig: ProjectConfig | null = null;
+
+  if (!isGlobalJarvis) {
+    projectChannelConfig = await getProjectConfigByChannelId(msg.channelId);
+    if (!projectChannelConfig) return;
+  }
+
   if (!isSendable(msg.channel)) return;
 
   console.log(`Message received: "${msg.content.slice(0, 60)}"`);
@@ -267,7 +274,7 @@ export async function handleMessage(msg: DiscordMessage) {
     }
 
     console.log('Using brain...');
-    const systemPrompt = await getSystemPrompt();
+    const systemPrompt = projectChannelConfig?.system_prompt ?? await getSystemPrompt();
     const result = await think(systemPrompt, history, msg.content);
     stopTyping();
 
