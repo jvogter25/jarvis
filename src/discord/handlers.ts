@@ -3,6 +3,7 @@ import { getRecentMessages, saveMessage, getSystemPrompt } from '../memory/supab
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
+import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -43,9 +44,17 @@ export async function handleMessage(msg: DiscordMessage) {
   if (pending) {
     if (isAffirmative(msg.content)) {
       pendingInstallRequest.delete(msg.channelId);
-      await msg.channel.send(
-        `Got it. To add **${pending.capability}** to my capabilities, ask in Claude Code: "Add ${pending.capability} to Jarvis". It takes a few minutes to build and deploy. I'll be ready after.`
-      );
+      const toolId = pending.capability.toLowerCase().replace(/\s+/g, '_');
+      const plan = INSTALL_PLANS[toolId];
+      if (plan) {
+        await msg.channel.send(`On it — installing **${pending.capability}** now...`);
+        const result = await executeSelfModify(plan);
+        await msg.channel.send(result.message);
+      } else {
+        await msg.channel.send(
+          `I don't have an auto-install recipe for **${pending.capability}** yet. Ask in Claude Code: "Add ${pending.capability} to Jarvis" and it'll be wired up.`
+        );
+      }
       return;
     } else if (isNegative(msg.content)) {
       pendingInstallRequest.delete(msg.channelId);
