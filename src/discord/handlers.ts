@@ -56,6 +56,10 @@ export async function handleDesignMessage(msg: DiscordMessage) {
         stopTyping();
         await msg.channel.send(`Saved to inspiration library as \`${fileName}\`. I'll use this as visual context when building.`);
         return;
+      } else {
+        stopTyping();
+        await msg.channel.send(`I can only save image attachments here. Drop a screenshot or design image, paste a code block to save a component, or drop a URL to extract styles.`);
+        return;
       }
     }
 
