@@ -24,7 +24,8 @@ export interface BuildResult {
 
 export async function getDesignSuggestions(description: string): Promise<string> {
   const library = await scanDesignLibrary();
-  if (library.components.length === 0 && library.tokenSummary.includes('0 sites')) {
+  const tokens = await readDesignTokens();
+  if (library.components.length === 0 && tokens.sources.length === 0) {
     return 'No design library populated yet — will use default design tokens (dark theme, Inter font, blue primary).';
   }
   return [
@@ -107,6 +108,9 @@ export async function buildProject(
   plan: BuildPlan,
   generatedFiles: Array<{ path: string; content: string }>
 ): Promise<BuildResult> {
+  // Sanitize slug: lowercase, hyphens only
+  plan.slug = plan.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
   await createProject({
     name: plan.projectName,
     slug: plan.slug,

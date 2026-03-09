@@ -32,7 +32,7 @@ const pendingStagingApproval = new Map<string, {
 
 function isShipApproval(text: string, slug?: string): boolean {
   const lower = text.toLowerCase().trim();
-  const exactPhrases = ['ship it', 'deploy', 'go live', 'approve', 'push it', 'launch it'];
+  const exactPhrases = ['ship it', 'go live', 'approve', 'push it', 'launch it'];
   if (exactPhrases.includes(lower)) return true;
   if (slug && lower === `ship ${slug}`) return true;
   return false;
