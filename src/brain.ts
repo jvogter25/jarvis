@@ -12,7 +12,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   deploy_html: {
     name: 'deploy_html',
-    description: 'Deploy a complete HTML page to a live public sandbox URL. Use this whenever you produce a finished HTML page — never paste raw HTML in the chat.',
+    description: 'Deploy a raw HTML snippet to a temporary sandbox URL for quick demos or experiments only. Do NOT use this for landing pages, SaaS products, or anything Jake wants to keep — use build_app instead. This sandbox URL expires and has no GitHub repo or Vercel project behind it.',
     input_schema: {
       type: 'object' as const,
       properties: {
