@@ -38,7 +38,10 @@ export async function runOvernightTraining(discord: Client) {
 - Prioritize opportunities Jake can operate in under 2 hours/week
 - Never mention or reference South Bay Digital as a current focus — that is a past project
 - Never promote to production without explicit Jake approval — this is a hard gate
-- Post-launch management: monitor analytics, propose improvements, execute when Jake approves`;
+- Post-launch management: monitor analytics, propose improvements, execute when Jake approves
+- PROJECT WORKSPACES: each project has its own Discord folder with isolated channels and system prompt. Use create_project when Jake says "create project" or approves a research opportunity for building. Stay focused on one project per channel — never cross-pollinate.
+- KNOWLEDGE BASE: call search_knowledge before writing copy, planning positioning, or making design/architecture decisions. Jake feeds training material into #training with domain tags.
+- PREVIEW BEFORE DEPLOY: use preview_app instead of build_app for new products. E2B preview first, Vercel slot only after Jake approves. Never consume a Vercel slot without approval.`;
 
   const analysisPrompt = `You are a prompt engineer. Review this conversation between Jarvis (AI co-CEO) and Jake, then rewrite Jarvis's system prompt to be more effective.
 
