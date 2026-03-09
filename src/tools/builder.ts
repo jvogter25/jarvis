@@ -3,6 +3,7 @@ import { readDesignTokens, scanDesignLibrary, generateCssVars } from './design.j
 import { createProject, updateProject } from '../memory/supabase.js';
 import { isOvernightActive } from '../overnight/mode.js';
 import { think } from '../brain.js';
+import { runNextjsPreview } from '../sandbox/client.js';
 
 const TEMPLATE_REPO = 'jarvis-template';
 const OWNER = process.env.GITHUB_OWNER!;
@@ -185,9 +186,59 @@ Only include files that changed. Return JSON only, no markdown.`;
   return currentFiles;
 }
 
-export async function buildProject(
+export interface PreviewResult {
+  slug: string;
+  previewUrl: string;
+  sandboxId: string;
+  files: Array<{ path: string; content: string }>;
+}
+
+/**
+ * Phase 1: Generate and preview in E2B sandbox. Does NOT create Vercel project.
+ * Call this first. If Jake approves, call buildProject() with the same files.
+ */
+export async function previewProject(
   plan: BuildPlan,
   generatedFiles: Array<{ path: string; content: string }>
+): Promise<PreviewResult> {
+  plan.slug = plan.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+  // Dedup slug
+  const { getProject } = await import('../memory/supabase.js');
+  let uniqueSlug = plan.slug;
+  let attempt = 2;
+  while (await getProject(uniqueSlug)) {
+    uniqueSlug = `${plan.slug}-${attempt++}`;
+  }
+  plan.slug = uniqueSlug;
+
+  console.log(`[preview] Starting E2B preview for ${plan.slug}...`);
+
+  // TypeScript validation (only for full_app builds)
+  let filesToPreview = generatedFiles;
+  if (plan.buildType === 'full_app') {
+    console.log(`[preview] Running TypeScript validation...`);
+    filesToPreview = await runTypeScriptCheck(generatedFiles);
+  }
+
+  // Add design tokens
+  const tokens = await readDesignTokens();
+  const allFiles = [
+    { path: 'app/design-tokens.css', content: generateCssVars(tokens) },
+    ...filesToPreview,
+  ];
+
+  console.log(`[preview] Spinning up E2B Next.js preview (${allFiles.length} files)...`);
+  const { url, sandboxId } = await runNextjsPreview(allFiles);
+  console.log(`[preview] Preview URL: ${url}`);
+
+  return { slug: plan.slug, previewUrl: url, sandboxId, files: allFiles };
+}
+
+export async function buildProject(
+  plan: BuildPlan,
+  generatedFiles: Array<{ path: string; content: string }>,
+  skipValidation = false
 ): Promise<BuildResult> {
   // Sanitize slug: lowercase, hyphens only
   plan.slug = plan.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -231,7 +282,7 @@ export async function buildProject(
 
   // For full_app builds: run TypeScript validation loop before pushing
   let filesToPush = generatedFiles;
-  if (plan.buildType === 'full_app') {
+  if (plan.buildType === 'full_app' && !skipValidation) {
     console.log(`[build] Running TypeScript validation...`);
     filesToPush = await runTypeScriptCheck(generatedFiles);
     console.log(`[build] TypeScript validation complete`);

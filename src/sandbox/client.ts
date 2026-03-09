@@ -46,3 +46,31 @@ export async function serveHtml(html: string): Promise<SandboxResult> {
     3000
   );
 }
+
+/**
+ * Run a Next.js app in E2B sandbox for preview. Returns a live URL (valid ~1hr).
+ * files: all Next.js project files including package.json
+ */
+export async function runNextjsPreview(
+  files: { path: string; content: string }[]
+): Promise<{ url: string; sandboxId: string }> {
+  const sandbox = await Sandbox.create({
+    apiKey: process.env.E2B_API_KEY,
+    timeoutMs: 60 * 60 * 1000, // 1 hour for preview
+  });
+
+  // Write all files
+  for (const file of files) {
+    await sandbox.files.write(file.path, file.content);
+  }
+
+  // Install deps and start Next.js dev server
+  await sandbox.commands.run('npm install --legacy-peer-deps 2>&1 | tail -5', { timeoutMs: 120000 });
+  await sandbox.commands.run('npx next dev --port 3000 2>&1', { background: true });
+
+  // Wait for Next.js to start (it takes a few seconds)
+  await new Promise(r => setTimeout(r, 8000));
+
+  const url = `https://${sandbox.getHost(3000)}`;
+  return { url, sandboxId: sandbox.sandboxId };
+}
