@@ -21,10 +21,6 @@ function keepTyping(channel: SendableChannel): () => void {
   return () => clearInterval(interval);
 }
 
-// In-memory: track if we're waiting for install approval
-// Maps channelId → { capability, reason, plan (if already generated) }
-const pendingInstallRequest = new Map<string, { capability: string; reason: string; plan?: SelfModifyPlan }>();
-
 const pendingStagingApproval = new Map<string, {
   slug: string;
   stagingUrl: string;
@@ -138,37 +134,6 @@ export async function handleMessage(msg: DiscordMessage) {
 
   console.log(`Message received: "${msg.content.slice(0, 60)}"`);
 
-  // Check if we're waiting for install approval
-  const pending = pendingInstallRequest.get(msg.channelId);
-  if (pending) {
-    if (isAffirmative(msg.content)) {
-      pendingInstallRequest.delete(msg.channelId);
-      if (pending.plan) {
-        await msg.channel.send(`On it — shipping **${pending.capability}** now...`);
-        const result = await executeSelfModifyPlan(pending.plan);
-        await msg.channel.send(result.message);
-      } else {
-        // No pre-generated plan — generate one now
-        await msg.channel.send(`Generating code for **${pending.capability}**...`);
-        const genResult = await requestSelfModify(pending.capability);
-        if (!genResult.success || !genResult.plan) {
-          await msg.channel.send(genResult.message);
-          return;
-        }
-        // Store the plan and ask for final confirmation
-        pendingInstallRequest.set(msg.channelId, { capability: pending.capability, reason: pending.reason, plan: genResult.plan });
-        await msg.channel.send(genResult.message);
-      }
-      return;
-    } else if (isNegative(msg.content)) {
-      pendingInstallRequest.delete(msg.channelId);
-      await msg.channel.send(`No problem — skipping the ${pending.capability} install. What else can I help with?`);
-      return;
-    }
-    // Not a yes/no — clear pending and fall through to normal handling
-    pendingInstallRequest.delete(msg.channelId);
-  }
-
   // Check if we're waiting for self-modify approval (from self_modify_request tool)
   const pendingModify = pendingPRApproval.get(msg.channelId);
   if (pendingModify) {
@@ -179,7 +144,7 @@ export async function handleMessage(msg: DiscordMessage) {
       try {
         const result = await executeSelfModifyPlan(pendingModify.plan);
         await msg.channel.send(result.message);
-        if (result.prUrl) {
+        if (result.success && result.prUrl) {
           await notifySlackEngineering(`🔧 Self-modify PR opened: ${result.prUrl}`);
         }
       } catch (err) {
@@ -277,13 +242,6 @@ export async function handleMessage(msg: DiscordMessage) {
       if (toolResult.deployedUrl) {
         await msg.channel.send(`✅ Live preview: ${toolResult.deployedUrl}`);
       }
-      if (toolResult.installRequest) {
-        const { capability, reason } = toolResult.installRequest;
-        pendingInstallRequest.set(msg.channelId, { capability, reason });
-        await msg.channel.send(
-          `To do that I need **${capability}** — which I don't have yet.\n\n**Reason:** ${reason}\n\nWant me to get that installed? (yes/no)`
-        );
-      }
       if (toolResult.stagingBuild) {
         const build = toolResult.stagingBuild;
         pendingStagingApproval.set(msg.channelId, build);
@@ -293,6 +251,7 @@ export async function handleMessage(msg: DiscordMessage) {
       }
       if (toolResult.selfModifyProposal) {
         pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
+        await msg.channel.send(toolResult.selfModifyProposal.message);
       }
     }
 
