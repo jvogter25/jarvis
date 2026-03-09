@@ -31,7 +31,7 @@ Respond with JSON only, no markdown:
 {"analysis": "what you found", "new_prompt": "the improved system prompt"}`;
 
   try {
-    const text = await think('You are a prompt engineering assistant.', [], analysisPrompt);
+    const text = (await think('You are a prompt engineering assistant.', [], analysisPrompt)).text;
     const parsed = JSON.parse(text);
     await saveSystemPrompt(parsed.new_prompt);
 

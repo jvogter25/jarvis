@@ -18,11 +18,11 @@ ${opportunities.slice(0, 3).map(o => `- [${o.score}/100] ${o.title}: ${o.summary
 `;
 
   try {
-    const briefing = await think(
+    const briefing = (await think(
       'You are Jarvis. Write a concise morning briefing for Jake. Include: what happened recently, top 3 priorities for today, any opportunities to review. Be direct, no fluff. Use markdown headers.',
       [],
       context
-    );
+    )).text;
 
     const channel = discord.channels.cache.get(CHANNELS.MORNING_BRIEF) as TextChannel | undefined;
     if (channel) {

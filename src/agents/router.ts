@@ -13,12 +13,12 @@ ${agentList}
 If the message is general conversation, strategy, or status — respond with: NONE
 Otherwise respond with just the agent ID (e.g. "engineering-ai-engineer"). No explanation.`;
 
-  const agentId = (await think(routingSystemPrompt, [], userMessage)).trim();
+  const agentId = (await think(routingSystemPrompt, [], userMessage)).text.trim();
 
   if (agentId === 'NONE') return null;
 
   const agent = agents.find(a => a.id === agentId);
   if (!agent) return null;
 
-  return think(agent.systemPrompt, [], userMessage);
+  return (await think(agent.systemPrompt, [], userMessage)).text;
 }
