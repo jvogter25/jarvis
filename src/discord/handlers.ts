@@ -31,6 +31,10 @@ const pendingStagingApproval = new Map<string, {
   vercelProjectId: string;
 }>();
 
+const pendingPRApproval = new Map<string, {
+  plan: SelfModifyPlan;
+}>();
+
 function isShipApproval(text: string, slug?: string): boolean {
   const lower = text.toLowerCase().trim();
   const exactPhrases = ['ship it', 'go live', 'approve', 'push it', 'launch it'];
@@ -165,6 +169,31 @@ export async function handleMessage(msg: DiscordMessage) {
     pendingInstallRequest.delete(msg.channelId);
   }
 
+  // Check if we're waiting for self-modify approval (from self_modify_request tool)
+  const pendingModify = pendingPRApproval.get(msg.channelId);
+  if (pendingModify) {
+    const approveModify = isShipApproval(msg.content) || isAffirmative(msg.content);
+    if (approveModify) {
+      pendingPRApproval.delete(msg.channelId);
+      await msg.channel.send('Executing the change...');
+      try {
+        const result = await executeSelfModifyPlan(pendingModify.plan);
+        await msg.channel.send(result.message);
+        if (result.prUrl) {
+          await notifySlackEngineering(`🔧 Self-modify PR opened: ${result.prUrl}`);
+        }
+      } catch (err) {
+        await msg.channel.send(`⚠️ Failed: ${(err as Error).message}`);
+      }
+      return;
+    } else if (isNegative(msg.content)) {
+      pendingPRApproval.delete(msg.channelId);
+      await msg.channel.send('Cancelled. Let me know if you want to revisit this.');
+      return;
+    }
+    // Conversational — fall through with pending preserved
+  }
+
   // Check if we're waiting for staging approval
   const pendingStaging = pendingStagingApproval.get(msg.channelId);
   if (pendingStaging) {
@@ -261,6 +290,9 @@ export async function handleMessage(msg: DiscordMessage) {
         const stagingMsg = `Staging ready for **${build.slug}**: ${build.stagingUrl}\n\nSay **"ship it"** to deploy to production, or tell me what to change.`;
         await msg.channel.send(stagingMsg);
         await notifySlackEngineering(`🔧 Staging ready: *${build.slug}*\n${build.stagingUrl}\nApprove in Discord to ship.`);
+      }
+      if (toolResult.selfModifyProposal) {
+        pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
       }
     }
 
