@@ -131,7 +131,7 @@ export async function createProject(input: {
   return data as Project;
 }
 
-export async function updateProject(slug: string, updates: Partial<Project>): Promise<void> {
+export async function updateProject(slug: string, updates: Omit<Partial<Project>, 'id' | 'slug' | 'created_at' | 'updated_at'>): Promise<void> {
   const { error } = await supabase
     .from('projects')
     .update({ ...updates, updated_at: new Date().toISOString() })
