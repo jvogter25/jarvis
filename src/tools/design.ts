@@ -1,4 +1,4 @@
-import { upsertFile, getFileContent, listFiles } from '../github/client.js';
+import { upsertFile, upsertBinaryFile, getFileContent, listFiles } from '../github/client.js';
 import { interactWithPage } from './browser.js';
 
 const JARVIS_REPO = 'jarvis';
@@ -44,11 +44,11 @@ const DEFAULT_TOKENS: DesignTokens = {
 
 export async function readDesignTokens(): Promise<DesignTokens> {
   const raw = await getFileContent(JARVIS_REPO, DESIGN_TOKENS_PATH);
-  if (!raw) return DEFAULT_TOKENS;
+  if (!raw) return structuredClone(DEFAULT_TOKENS);
   try {
     return JSON.parse(raw) as DesignTokens;
   } catch {
-    return DEFAULT_TOKENS;
+    return structuredClone(DEFAULT_TOKENS);
   }
 }
 
@@ -119,7 +119,7 @@ export async function extractCssFromUrl(url: string): Promise<Partial<DesignToke
       headingFont: string | null;
     };
 
-    const tokens: Partial<DesignTokens> = { colors: {}, fonts: {} };
+    const tokens: Partial<DesignTokens> = { colors: {}, fonts: {}, radius: {}, spacing: {} };
 
     const varMap: Record<string, [keyof DesignTokens, string]> = {
       '--primary': ['colors', 'primary'],
@@ -170,7 +170,7 @@ export async function saveComponent(name: string, code: string): Promise<void> {
 }
 
 export async function saveInspiration(fileName: string, imageBase64: string): Promise<void> {
-  await upsertFile(
+  await upsertBinaryFile(
     JARVIS_REPO,
     `${INSPIRATION_PATH}/${fileName}`,
     imageBase64,

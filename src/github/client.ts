@@ -27,6 +27,25 @@ export async function upsertFile(repo: string, filePath: string, content: string
   });
 }
 
+export async function upsertBinaryFile(repo: string, filePath: string, base64Content: string, message: string) {
+  let sha: string | undefined;
+  try {
+    const { data } = await octokit.rest.repos.getContent({ owner: OWNER, repo, path: filePath });
+    if (!Array.isArray(data) && data.type === 'file') sha = data.sha;
+  } catch {
+    // File doesn't exist yet
+  }
+
+  await octokit.rest.repos.createOrUpdateFileContents({
+    owner: OWNER,
+    repo,
+    path: filePath,
+    message,
+    content: base64Content,  // already base64-encoded, don't re-encode
+    sha,
+  });
+}
+
 export async function createPR(repo: string, title: string, body: string, head: string, base = 'main') {
   const { data } = await octokit.rest.pulls.create({
     owner: OWNER,
