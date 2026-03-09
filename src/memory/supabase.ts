@@ -271,7 +271,9 @@ export async function getProjectConfigByChannelId(channelId: string): Promise<Pr
     .from('project_configs')
     .select('*');
   if (error) return null;
-  return (data ?? []).find((p: ProjectConfig) => Object.values(p.channels).includes(channelId)) ?? null;
+  return (data ?? []).find((p: ProjectConfig) =>
+    p.channels && typeof p.channels === 'object' && Object.values(p.channels).includes(channelId)
+  ) ?? null;
 }
 
 export async function updateProjectConfig(slug: string, updates: Partial<Pick<ProjectConfig, 'system_prompt' | 'last_synced_at' | 'github_repo'>>): Promise<void> {
