@@ -1,5 +1,5 @@
 import { Client, TextChannel } from 'discord.js';
-import { scrapeReddit, scrapeHN } from './scraper.js';
+import { scrapeReddit, scrapeHN, scrapeBraveSearch, scrapeDevTo } from './scraper.js';
 import { scorePost, ScoredOpportunity } from './scorer.js';
 import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted, hasOpportunityByTitle } from '../memory/supabase.js';
 import { CHANNELS } from '../discord/channels.js';
@@ -7,8 +7,10 @@ import { CHANNELS } from '../discord/channels.js';
 export async function runResearchLoop(discord: Client) {
   console.log('Research loop: starting scrape...');
 
-  const [redditPosts, hnPosts] = await Promise.all([scrapeReddit(), scrapeHN()]);
-  const allPosts = [...redditPosts, ...hnPosts];
+  const [redditPosts, hnPosts, bravePosts, devtoPosts] = await Promise.all([
+    scrapeReddit(), scrapeHN(), scrapeBraveSearch(), scrapeDevTo()
+  ]);
+  const allPosts = [...redditPosts, ...hnPosts, ...bravePosts, ...devtoPosts];
 
   console.log(`Research loop: scoring ${allPosts.length} posts...`);
 
