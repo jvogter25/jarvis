@@ -2,6 +2,7 @@ import { Client, TextChannel } from 'discord.js';
 import { getRecentMessages, getUnpostedOpportunities } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { CHANNELS } from '../discord/channels.js';
+import { generateOvernightSummary } from './mode.js';
 
 export async function postMorningBriefing(discord: Client) {
   console.log('Morning briefing: generating...');
@@ -24,9 +25,14 @@ ${opportunities.slice(0, 3).map(o => `- [${o.score}/100] ${o.title}: ${o.summary
       context
     )).text;
 
+    const overnightSummary = await generateOvernightSummary();
+    const fullBriefing = overnightSummary
+      ? `${briefing}\n\n---\n${overnightSummary}`
+      : briefing;
+
     const channel = discord.channels.cache.get(CHANNELS.MORNING_BRIEF) as TextChannel | undefined;
     if (channel) {
-      await channel.send(`**Good morning, Jake.**\n\n${briefing}`);
+      await channel.send(`**Good morning, Jake.**\n\n${fullBriefing}`);
     }
   } catch (err) {
     console.error('Morning briefing failed:', err);

@@ -4,6 +4,7 @@ import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
+import { activateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
 
@@ -178,6 +179,18 @@ export async function handleMessage(msg: DiscordMessage) {
       return;
     }
     // Conversational message — fall through with staging state preserved
+  }
+
+  // Overnight mode trigger detection
+  const overnightInstructions = detectOvernightTrigger(msg.content);
+  if (overnightInstructions) {
+    activateOvernightMode(msg.channelId, overnightInstructions);
+    await msg.channel.send(
+      `Overnight mode activated.\n\nI'll work on: "${overnightInstructions}"\n\n` +
+      `**Rules:** All builds deploy to staging only — nothing goes live without your approval. ` +
+      `You'll see a summary in your morning brief.`
+    );
+    return;
   }
 
   await msg.channel.sendTyping();
