@@ -54,23 +54,33 @@ export async function serveHtml(html: string): Promise<SandboxResult> {
 export async function runNextjsPreview(
   files: { path: string; content: string }[]
 ): Promise<{ url: string; sandboxId: string }> {
-  const sandbox = await Sandbox.create({
-    apiKey: process.env.E2B_API_KEY,
-    timeoutMs: 60 * 60 * 1000, // 1 hour for preview
-  });
+  let sandbox: Sandbox | null = null;
+  try {
+    sandbox = await Sandbox.create({
+      apiKey: process.env.E2B_API_KEY,
+      timeoutMs: 60 * 60 * 1000, // 1 hour for preview
+    });
 
-  // Write all files
-  for (const file of files) {
-    await sandbox.files.write(file.path, file.content);
+    // Write all files
+    for (const file of files) {
+      await sandbox.files.write(file.path, file.content);
+    }
+
+    // Install deps — throws CommandExitError automatically on non-zero exit
+    await sandbox.commands.run('npm install --legacy-peer-deps', { timeoutMs: 120000 });
+
+    // Start Next.js dev server in background
+    await sandbox.commands.run('npx next dev --port 3000 2>&1', { background: true });
+
+    // Wait for Next.js to start (it takes a few seconds)
+    await new Promise(r => setTimeout(r, 8000));
+
+    const url = `https://${sandbox.getHost(3000)}`;
+    return { url, sandboxId: sandbox.sandboxId };
+  } catch (err) {
+    if (sandbox) {
+      await sandbox.kill().catch(() => {}); // best-effort cleanup
+    }
+    throw err;
   }
-
-  // Install deps and start Next.js dev server
-  await sandbox.commands.run('npm install --legacy-peer-deps 2>&1 | tail -5', { timeoutMs: 120000 });
-  await sandbox.commands.run('npx next dev --port 3000 2>&1', { background: true });
-
-  // Wait for Next.js to start (it takes a few seconds)
-  await new Promise(r => setTimeout(r, 8000));
-
-  const url = `https://${sandbox.getHost(3000)}`;
-  return { url, sandboxId: sandbox.sandboxId };
 }
