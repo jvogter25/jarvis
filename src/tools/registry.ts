@@ -63,6 +63,13 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['GITHUB_TOKEN', 'VERCEL_TOKEN'],
   },
+  {
+    id: 'self_modify_request',
+    name: 'Self-Modify',
+    description: 'Generate and propose code changes to the Jarvis codebase using Opus',
+    installed: true,
+    requiresEnv: ['GITHUB_TOKEN'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {
