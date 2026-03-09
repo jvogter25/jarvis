@@ -38,3 +38,57 @@ export async function createPR(repo: string, title: string, body: string, head: 
   });
   return data.html_url;
 }
+
+export async function getFileContent(repo: string, filePath: string): Promise<string | null> {
+  try {
+    const { data } = await octokit.rest.repos.getContent({ owner: OWNER, repo, path: filePath });
+    if (Array.isArray(data) || data.type !== 'file') return null;
+    return Buffer.from(data.content, 'base64').toString('utf-8');
+  } catch {
+    return null;
+  }
+}
+
+export async function listFiles(repo: string, dirPath: string): Promise<string[]> {
+  try {
+    const { data } = await octokit.rest.repos.getContent({ owner: OWNER, repo, path: dirPath });
+    if (!Array.isArray(data)) return [];
+    return data.filter(f => f.type === 'file').map(f => f.name);
+  } catch {
+    return [];
+  }
+}
+
+export async function createRepoFromTemplate(templateRepo: string, newName: string): Promise<void> {
+  await octokit.rest.repos.createUsingTemplate({
+    template_owner: OWNER,
+    template_repo: templateRepo,
+    owner: OWNER,
+    name: newName,
+    private: false,
+  });
+}
+
+export async function createBranch(repo: string, branchName: string, fromBranch = 'main'): Promise<void> {
+  const { data: ref } = await octokit.rest.git.getRef({
+    owner: OWNER,
+    repo,
+    ref: `heads/${fromBranch}`,
+  });
+  await octokit.rest.git.createRef({
+    owner: OWNER,
+    repo,
+    ref: `refs/heads/${branchName}`,
+    sha: ref.object.sha,
+  });
+}
+
+export async function mergeBranch(repo: string, head: string, base = 'main'): Promise<void> {
+  await octokit.rest.repos.merge({
+    owner: OWNER,
+    repo,
+    base,
+    head,
+    commit_message: `chore: merge ${head} into ${base}`,
+  });
+}
