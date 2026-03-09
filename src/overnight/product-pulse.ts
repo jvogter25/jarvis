@@ -1,5 +1,5 @@
 import { Client, TextChannel } from 'discord.js';
-import { getProjects } from '../memory/supabase.js';
+import { getProjects, getAllProjectConfigs } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { CHANNELS } from '../discord/channels.js';
 
@@ -44,12 +44,18 @@ export async function runProductPulse(discord: Client): Promise<void> {
   const liveProjects = await getProjects('live');
   if (liveProjects.length === 0) return;
 
-  const channel = discord.channels.cache.get(CHANNELS.ENGINEERING) as TextChannel | undefined;
-  if (!channel) return;
+  const projectConfigs = await getAllProjectConfigs();
+  const projectChannelMap = new Map(
+    projectConfigs.map(p => [p.slug, p.channels.engineering])
+  );
 
-  const summaries: string[] = [];
+  const dateLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   for (const project of liveProjects) {
+    const projectEngineeringId = projectChannelMap.get(project.slug) ?? CHANNELS.ENGINEERING;
+    const projectChannel = discord.channels.cache.get(projectEngineeringId) as TextChannel | undefined;
+    if (!projectChannel) continue;
+
     const analytics = project.vercel_project_id
       ? await fetchVercelAnalytics(project.vercel_project_id)
       : null;
@@ -90,28 +96,25 @@ Be direct. No hedging.`;
         { model: 'haiku', noTools: true }
       );
 
-      summaries.push([
+      const summary = [
         `**${project.name}** — ${project.production_url ?? 'no URL'}`,
         analyticsText,
         `Analysis: ${analysis.text}`,
-      ].join('\n'));
+      ].join('\n');
+
+      const header = `**Weekly Product Pulse — ${dateLabel}** · ${project.name}\n\n`;
+      const full = header + summary + '\n\nReply "fix [project]" to queue a fix, or "archive [project]" to retire it.';
+
+      if (full.length <= 1900) {
+        await projectChannel.send(full);
+      } else {
+        await projectChannel.send(header.trim());
+        const msg = summary.length > 1900 ? summary.slice(0, 1900) + '…' : summary;
+        await projectChannel.send(msg);
+      }
     } catch {
-      summaries.push(`**${project.name}** — analytics unavailable`);
-    }
-  }
-
-  const header = `**Weekly Product Pulse — ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}**\n\n`;
-  const body = summaries.join('\n\n---\n\n');
-  const full = header + body + '\n\nReply "fix [project]" to queue a fix, or "archive [project]" to retire it.';
-
-  // Split if over 2000 chars
-  if (full.length <= 1900) {
-    await channel.send(full);
-  } else {
-    await channel.send(header.trim());
-    for (const summary of summaries) {
-      const msg = summary.length > 1900 ? summary.slice(0, 1900) + '…' : summary;
-      await channel.send(msg);
+      const fallback = `**${project.name}** — analytics unavailable`;
+      await projectChannel.send(fallback).catch(() => undefined);
     }
   }
 }
