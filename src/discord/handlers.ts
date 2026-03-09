@@ -1,12 +1,11 @@
 import { Message as DiscordMessage, TextChannel, DMChannel, NewsChannel } from 'discord.js';
-import { getRecentMessages, saveMessage, getSystemPrompt } from '../memory/supabase.js';
+import { getRecentMessages, saveMessage, getSystemPrompt, updateProject } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
-import { updateProject } from '../memory/supabase.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -30,10 +29,12 @@ const pendingStagingApproval = new Map<string, {
   vercelProjectId: string;
 }>();
 
-const SHIP_PHRASES = ['ship it', 'ship', 'deploy', 'go live', 'approve', 'push it', 'launch it'];
-function isShipApproval(text: string): boolean {
+function isShipApproval(text: string, slug?: string): boolean {
   const lower = text.toLowerCase().trim();
-  return SHIP_PHRASES.includes(lower) || lower.startsWith('ship ');
+  const exactPhrases = ['ship it', 'deploy', 'go live', 'approve', 'push it', 'launch it'];
+  if (exactPhrases.includes(lower)) return true;
+  if (slug && lower === `ship ${slug}`) return true;
+  return false;
 }
 
 const YES_WORDS = new Set(['yes', 'yeah', 'yep', 'sure', 'do it', 'go ahead', 'install it', 'ok', 'okay', 'absolutely', 'y']);
@@ -160,7 +161,7 @@ export async function handleMessage(msg: DiscordMessage) {
   // Check if we're waiting for staging approval
   const pendingStaging = pendingStagingApproval.get(msg.channelId);
   if (pendingStaging) {
-    if (isShipApproval(msg.content)) {
+    if (isShipApproval(msg.content, pendingStaging.slug)) {
       pendingStagingApproval.delete(msg.channelId);
       await msg.channel.send(`Promoting **${pendingStaging.slug}** to production...`);
       try {
@@ -176,7 +177,7 @@ export async function handleMessage(msg: DiscordMessage) {
       await msg.channel.send(`Keeping **${pendingStaging.slug}** in staging. Let me know when you want to ship it or want changes.`);
       return;
     }
-    pendingStagingApproval.delete(msg.channelId);
+    // Conversational message — fall through with staging state preserved
   }
 
   await msg.channel.sendTyping();
