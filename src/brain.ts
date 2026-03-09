@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Message } from './memory/supabase.js';
 import { serveHtml } from './sandbox/client.js';
 import { runShell } from './tools/shell.js';
-import { browseUrl } from './tools/browser.js';
+import { browseUrl, interactWithPage } from './tools/browser.js';
 import { searchWeb } from './tools/search.js';
 import { getInstalledTools } from './tools/registry.js';
 
@@ -67,6 +67,18 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
         count: { type: 'number', description: 'Number of results to return (default 5, max 20)' },
       },
       required: ['query'],
+    },
+  },
+  playwright: {
+    name: 'playwright',
+    description: 'Interactive Playwright browser automation on live pages via Browserbase. Use for: clicking buttons, filling forms, inspecting CSS/computed styles, running JavaScript, testing user flows, taking screenshots. Write Playwright JS code that runs after page.goto() — use page.* methods and console.log() to return results.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        url: { type: 'string', description: 'URL to navigate to' },
+        playwright_code: { type: 'string', description: 'Playwright JS code to run after page.goto(). Use page.* methods. console.log() any results to return them.' },
+      },
+      required: ['url', 'playwright_code'],
     },
   },
   request_tool_install: {
@@ -140,6 +152,16 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         .map((r, i) => `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.description}`)
         .join('\n\n');
       return { toolName: name, output: formatted || 'No results found.' };
+    }
+
+    case 'playwright': {
+      const url = input.url as string;
+      const playwrightCode = input.playwright_code as string;
+      const result = await interactWithPage(url, playwrightCode);
+      if (result.error) {
+        return { toolName: name, output: `Playwright failed: ${result.error}` };
+      }
+      return { toolName: name, output: result.result };
     }
 
     case 'request_tool_install': {

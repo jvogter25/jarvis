@@ -42,6 +42,13 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['BRAVE_SEARCH_API_KEY'],
   },
+  {
+    id: 'playwright',
+    name: 'Playwright Browser Automation',
+    description: 'Interactive browser automation — click buttons, fill forms, inspect CSS, run JavaScript, take screenshots on live pages',
+    installed: true,
+    requiresEnv: ['BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {
