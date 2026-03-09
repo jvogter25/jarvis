@@ -49,6 +49,20 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID'],
   },
+  {
+    id: 'get_design_suggestions',
+    name: 'Design Library Scan',
+    description: 'Scan saved design tokens and components for use in builds',
+    installed: true,
+    requiresEnv: ['GITHUB_TOKEN'],
+  },
+  {
+    id: 'build_app',
+    name: 'Build + Deploy App',
+    description: 'Fork Next.js template, inject design tokens, deploy to Vercel staging',
+    installed: true,
+    requiresEnv: ['GITHUB_TOKEN', 'VERCEL_TOKEN'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {

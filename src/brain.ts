@@ -93,6 +93,49 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['capability', 'reason'],
     },
   },
+  get_design_suggestions: {
+    name: 'get_design_suggestions',
+    description: 'Scan the design library and return available components and design tokens. ALWAYS call this before build_app to see what design elements are available to use.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        description: { type: 'string', description: 'Brief description of what you are building' },
+      },
+      required: ['description'],
+    },
+  },
+  build_app: {
+    name: 'build_app',
+    description: 'Build and deploy a web project from Discord. Forks jarvis-template, injects design tokens, pushes generated Next.js files to GitHub, deploys to Vercel staging. Always call get_design_suggestions first, present a plan to Jake, and wait for approval before calling this.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        project_name: { type: 'string', description: 'Human-readable project name' },
+        slug: { type: 'string', description: 'URL-safe slug for GitHub repo and Vercel URL (lowercase, hyphens only)' },
+        description: { type: 'string', description: 'What this builds and who it is for' },
+        build_type: { type: 'string', enum: ['landing_page', 'full_app'], description: 'Type of build' },
+        target_audience: { type: 'string', description: 'Who this is built for' },
+        components: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Names of design library components to use (from get_design_suggestions)',
+        },
+        files: {
+          type: 'array',
+          description: 'Complete Next.js files to push — full file contents, ready to deploy',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path relative to repo root, e.g. app/page.tsx' },
+              content: { type: 'string', description: 'Complete file content' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+      required: ['project_name', 'slug', 'description', 'build_type', 'target_audience', 'files'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -100,6 +143,7 @@ export interface ToolCallResult {
   output: string;
   deployedUrl?: string;  // set when deploy_html succeeds
   installRequest?: { capability: string; reason: string }; // set when install requested
+  stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
 }
 
 export interface ThinkResult {
@@ -171,6 +215,32 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         toolName: name,
         output: `Install request noted for: ${capability}`,
         installRequest: { capability, reason },
+      };
+    }
+
+    case 'get_design_suggestions': {
+      const { getDesignSuggestions } = await import('./tools/builder.js');
+      const suggestions = await getDesignSuggestions(input.description as string);
+      return { toolName: name, output: suggestions };
+    }
+
+    case 'build_app': {
+      const { buildProject } = await import('./tools/builder.js');
+      const result = await buildProject(
+        {
+          projectName: input.project_name as string,
+          slug: input.slug as string,
+          description: input.description as string,
+          buildType: input.build_type as 'landing_page' | 'full_app',
+          targetAudience: input.target_audience as string,
+          components: input.components as string[] | undefined,
+        },
+        input.files as Array<{ path: string; content: string }>
+      );
+      return {
+        toolName: name,
+        output: `Build started for **${result.slug}**\nGitHub: ${result.githubRepo}\nStaging: ${result.stagingUrl}`,
+        stagingBuild: result,
       };
     }
 
