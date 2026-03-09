@@ -64,6 +64,8 @@ export async function saveOpportunity(opp: {
   title: string;
   summary: string;
   score: number;
+  leverage_note?: string;
+  deep_dive?: string;
   raw: unknown;
 }) {
   const { error } = await supabase

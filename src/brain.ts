@@ -253,19 +253,46 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
  * Run Claude with tool support. Loops until Claude stops requesting tool calls.
  * Returns final text response + list of all tool results (for handler to act on).
  */
+export type ModelTier = 'haiku' | 'sonnet' | 'opus';
+
+const MODEL_IDS: Record<ModelTier, string> = {
+  haiku: 'claude-haiku-4-5-20251001',
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
+};
+
+export interface ThinkOptions {
+  /** Model tier: haiku (fast/cheap), sonnet (default), opus (complex builds) */
+  model?: ModelTier;
+  /** Skip tool injection — for pure text/analysis calls like scoring */
+  noTools?: boolean;
+}
+
+/**
+ * Run Claude with tool support. Loops until Claude stops requesting tool calls.
+ * Returns final text response + list of all tool results (for handler to act on).
+ *
+ * model: 'haiku' for scoring/formatting, 'sonnet' for chat (default), 'opus' for full app builds
+ * noTools: true for pure analysis calls (scorer, trainer) — skips tool schema injection
+ */
 export async function think(
   systemPrompt: string,
   history: Message[],
-  userMessage: string
+  userMessage: string,
+  options: ThinkOptions = {}
 ): Promise<ThinkResult> {
-  const installedToolIds = new Set(getInstalledTools().map(t => t.id));
-  // Always include request_tool_install; add others only if installed + have env
-  const activeToolSchemas: Anthropic.Tool[] = [
-    TOOL_SCHEMAS.request_tool_install,
-    ...Object.values(TOOL_SCHEMAS).filter(
-      t => t.name !== 'request_tool_install' && installedToolIds.has(t.name)
-    ),
-  ];
+  const { model = 'sonnet', noTools = false } = options;
+  const modelId = MODEL_IDS[model];
+
+  const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
+    const installedToolIds = new Set(getInstalledTools().map(t => t.id));
+    return [
+      TOOL_SCHEMAS.request_tool_install,
+      ...Object.values(TOOL_SCHEMAS).filter(
+        t => t.name !== 'request_tool_install' && installedToolIds.has(t.name)
+      ),
+    ];
+  })();
 
   const messages: Anthropic.MessageParam[] = [
     ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
@@ -278,13 +305,13 @@ export async function think(
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+    const response: Anthropic.Message = await client.messages.create({
+      model: modelId,
       max_tokens: 8192,
       system: systemPrompt,
-      tools: activeToolSchemas,
       messages,
-    });
+      ...(activeToolSchemas.length > 0 ? { tools: activeToolSchemas } : {}),
+    }) as Anthropic.Message;
 
     if (response.stop_reason !== 'tool_use') {
       // Done — extract text response

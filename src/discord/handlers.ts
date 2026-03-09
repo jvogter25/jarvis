@@ -7,6 +7,7 @@ import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
 import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
+import { notifySlackEngineering } from '../tools/slack.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -169,6 +170,7 @@ export async function handleMessage(msg: DiscordMessage) {
         const productionUrl = await promoteToProduction(pendingStaging.slug);
         await updateProject(pendingStaging.slug, { status: 'live', production_url: productionUrl });
         await msg.channel.send(`🚀 **${pendingStaging.slug}** is live: ${productionUrl}`);
+        await notifySlackEngineering(`🚀 *${pendingStaging.slug}* shipped to production: ${productionUrl}`);
       } catch (err) {
         await msg.channel.send(`⚠️ Deploy failed: ${(err as Error).message}`);
       }
@@ -251,9 +253,9 @@ export async function handleMessage(msg: DiscordMessage) {
       if (toolResult.stagingBuild) {
         const build = toolResult.stagingBuild;
         pendingStagingApproval.set(msg.channelId, build);
-        await msg.channel.send(
-          `Staging ready for **${build.slug}**: ${build.stagingUrl}\n\nSay **"ship it"** to deploy to production, or tell me what to change.`
-        );
+        const stagingMsg = `Staging ready for **${build.slug}**: ${build.stagingUrl}\n\nSay **"ship it"** to deploy to production, or tell me what to change.`;
+        await msg.channel.send(stagingMsg);
+        await notifySlackEngineering(`🔧 Staging ready: *${build.slug}*\n${build.stagingUrl}\nApprove in Discord to ship.`);
       }
     }
 

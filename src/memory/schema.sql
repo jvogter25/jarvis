@@ -21,10 +21,16 @@ create table if not exists opportunities (
   title text not null,
   summary text not null,
   score int not null,
+  leverage_note text,
+  deep_dive text,
   raw jsonb,
   posted_to_discord boolean default false,
   created_at timestamptz default now()
 );
+
+-- Run this if the table already exists to add the new columns:
+-- alter table opportunities add column if not exists leverage_note text;
+-- alter table opportunities add column if not exists deep_dive text;
 
 insert into system_prompts (version, content) values (
   1,

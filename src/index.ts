@@ -5,6 +5,7 @@ import { createDiscordClient } from './discord/client.js';
 import { runResearchLoop } from './research/loop.js';
 import { runOvernightTraining } from './overnight/trainer.js';
 import { postMorningBriefing } from './overnight/briefing.js';
+import { runProductPulse } from './overnight/product-pulse.js';
 
 async function main() {
   console.log('Jarvis starting...');
@@ -27,6 +28,11 @@ async function main() {
   // Morning briefing: 7am
   cron.schedule('0 7 * * *', () => {
     postMorningBriefing(discord).catch(console.error);
+  });
+
+  // Weekly product pulse: Mondays at 8am
+  cron.schedule('0 8 * * 1', () => {
+    runProductPulse(discord).catch(console.error);
   });
 
   console.log('Jarvis online.');

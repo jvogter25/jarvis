@@ -2,6 +2,7 @@ import { createRepoFromTemplate, createBranch, upsertFile, mergeBranch } from '.
 import { readDesignTokens, scanDesignLibrary, generateCssVars } from './design.js';
 import { createProject, updateProject } from '../memory/supabase.js';
 import { isOvernightActive } from '../overnight/mode.js';
+import { think } from '../brain.js';
 
 const TEMPLATE_REPO = 'jarvis-template';
 const OWNER = process.env.GITHUB_OWNER!;
@@ -104,6 +105,86 @@ export async function promoteToProduction(slug: string): Promise<string> {
   return `https://${slug}.vercel.app`;
 }
 
+/**
+ * For full_app builds: run TypeScript compilation check in E2B against the generated files.
+ * Returns list of errors (empty = clean). Up to 3 fix iterations.
+ */
+async function runTypeScriptCheck(
+  files: Array<{ path: string; content: string }>
+): Promise<Array<{ path: string; content: string }>> {
+  const { runShell } = await import('./shell.js');
+
+  const tsFiles = files.filter(f => f.path.endsWith('.ts') || f.path.endsWith('.tsx'));
+  if (tsFiles.length === 0) return files;
+
+  let currentFiles = [...files];
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Write files to E2B and run tsc
+    const shellFiles = currentFiles.map(f => ({ path: f.path, content: f.content }));
+    // Write a minimal tsconfig if not already present
+    if (!currentFiles.find(f => f.path === 'tsconfig.json')) {
+      shellFiles.push({
+        path: 'tsconfig.json',
+        content: JSON.stringify({
+          compilerOptions: {
+            target: 'es2017', lib: ['es2017'], module: 'commonjs',
+            jsx: 'react-jsx', strict: false, noEmit: true,
+            skipLibCheck: true, moduleResolution: 'node',
+          },
+          include: ['**/*.ts', '**/*.tsx'],
+          exclude: ['node_modules'],
+        }, null, 2),
+      });
+    }
+
+    const result = await runShell(
+      ['npm install --save-dev typescript @types/react @types/node --quiet 2>/dev/null', 'npx tsc --noEmit 2>&1 || true'],
+      shellFiles
+    );
+
+    const output = result.stdout + result.stderr;
+    const errorLines = output.split('\n').filter(l => l.includes('error TS'));
+
+    if (errorLines.length === 0) break; // clean
+
+    console.log(`TypeScript check attempt ${attempt + 1}: ${errorLines.length} errors, asking Claude to fix...`);
+
+    // Ask Claude to fix the errors
+    const errorSummary = errorLines.slice(0, 30).join('\n');
+    const fileContents = currentFiles
+      .filter(f => f.path.endsWith('.ts') || f.path.endsWith('.tsx'))
+      .map(f => `// ${f.path}\n${f.content}`)
+      .join('\n\n---\n\n');
+
+    const fixPrompt = `Fix these TypeScript compilation errors in the Next.js project files.
+
+Errors:
+${errorSummary}
+
+Current files:
+${fileContents.slice(0, 12000)}
+
+Return the fixed files as a JSON array: [{"path": "...", "content": "..."}]
+Only include files that changed. Return JSON only, no markdown.`;
+
+    try {
+      const fixResult = await think('You are a TypeScript expert fixing compilation errors.', [], fixPrompt, { model: 'sonnet', noTools: true });
+      const fixedFiles = JSON.parse(fixResult.text) as Array<{ path: string; content: string }>;
+      // Merge fixes back into currentFiles
+      for (const fix of fixedFiles) {
+        const idx = currentFiles.findIndex(f => f.path === fix.path);
+        if (idx >= 0) currentFiles[idx] = fix;
+        else currentFiles.push(fix);
+      }
+    } catch {
+      break; // If Claude can't fix, proceed with what we have
+    }
+  }
+
+  return currentFiles;
+}
+
 export async function buildProject(
   plan: BuildPlan,
   generatedFiles: Array<{ path: string; content: string }>
@@ -130,6 +211,12 @@ export async function buildProject(
   // Create staging branch
   await createBranch(plan.slug, 'staging');
 
+  // For full_app builds: run TypeScript validation loop before pushing
+  let filesToPush = generatedFiles;
+  if (plan.buildType === 'full_app') {
+    filesToPush = await runTypeScriptCheck(generatedFiles);
+  }
+
   // Push design tokens CSS and all generated files to staging branch
   const tokens = await readDesignTokens();
   await upsertFile(
@@ -140,7 +227,7 @@ export async function buildProject(
     'staging'
   );
 
-  for (const file of generatedFiles) {
+  for (const file of filesToPush) {
     await upsertFile(plan.slug, file.path, file.content, `feat: build ${plan.slug}`, 'staging');
   }
 
