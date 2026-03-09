@@ -20,27 +20,29 @@ export async function runShell(
     timeoutMs: 5 * 60 * 1000,
   });
 
-  // Write input files if any
-  for (const file of inputFiles) {
-    await sandbox.files.write(file.path, file.content);
+  try {
+    // Write input files if any
+    for (const file of inputFiles) {
+      await sandbox.files.write(file.path, file.content);
+    }
+
+    const stdoutParts: string[] = [];
+    const stderrParts: string[] = [];
+    let lastExitCode = 0;
+
+    for (const cmd of commands) {
+      const result = await sandbox.commands.run(cmd);
+      if (result.stdout) stdoutParts.push(result.stdout);
+      if (result.stderr) stderrParts.push(result.stderr);
+      lastExitCode = result.exitCode ?? -1;
+    }
+
+    return {
+      stdout: stdoutParts.join('\n').trim(),
+      stderr: stderrParts.join('\n').trim(),
+      exitCode: lastExitCode,
+    };
+  } finally {
+    await sandbox.kill();
   }
-
-  const stdoutParts: string[] = [];
-  const stderrParts: string[] = [];
-  let lastExitCode = 0;
-
-  for (const cmd of commands) {
-    const result = await sandbox.commands.run(cmd);
-    if (result.stdout) stdoutParts.push(result.stdout);
-    if (result.stderr) stderrParts.push(result.stderr);
-    lastExitCode = result.exitCode ?? 0;
-  }
-
-  await sandbox.kill();
-
-  return {
-    stdout: stdoutParts.join('\n').trim(),
-    stderr: stderrParts.join('\n').trim(),
-    exitCode: lastExitCode,
-  };
 }
