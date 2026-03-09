@@ -144,7 +144,6 @@ export interface ToolCallResult {
   toolName: string;
   output: string;
   deployedUrl?: string;  // set when deploy_html succeeds
-  installRequest?: { capability: string; reason: string }; // set when install requested
   stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
   selfModifyProposal?: { plan: import('./tools/self-modify.js').SelfModifyPlan; message: string };
 }

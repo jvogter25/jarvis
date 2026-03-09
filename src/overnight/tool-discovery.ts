@@ -102,7 +102,11 @@ If nothing is worth recommending this week, return {"tools": []}`;
       );
     }
 
-    await channel.send(lines.join('\n'));
+    const { splitMessage } = await import('../discord/channels.js');
+    const digest = lines.join('\n');
+    for (const chunk of splitMessage(digest)) {
+      await channel.send(chunk);
+    }
     console.log(`Tool discovery: posted ${tools.length} tools to #engineering`);
   } catch (err) {
     console.error('Tool discovery failed:', err);

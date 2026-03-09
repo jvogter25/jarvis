@@ -3,7 +3,7 @@ import { getRecentMessages, saveMessage, getSystemPrompt, updateProject } from '
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
-import { requestSelfModify, executeSelfModifyPlan, SelfModifyPlan } from '../tools/self-modify.js';
+import { executeSelfModifyPlan, SelfModifyPlan } from '../tools/self-modify.js';
 import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
