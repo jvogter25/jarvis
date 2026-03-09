@@ -13,6 +13,7 @@ export interface BrowseResult {
  */
 export async function browseUrl(url: string, task: string): Promise<BrowseResult> {
   const script = `
+// Task: ${task}
 const { chromium } = require('playwright');
 (async () => {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
@@ -27,8 +28,8 @@ const { chromium } = require('playwright');
 
   const result = await runShell(
     [
-      'npm install playwright --save-quiet 2>/dev/null',
-      'npx playwright install chromium --with-deps 2>/dev/null',
+      'npm install playwright --quiet',
+      'npx playwright install chromium --with-deps',
       'node script.js',
     ],
     [{ path: 'script.js', content: script }]
