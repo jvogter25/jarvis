@@ -35,16 +35,21 @@ const { chromium } = require('playwright');
     [{ path: 'script.js', content: script }]
   );
 
-  if (result.exitCode !== 0 || result.stderr.includes('"error"')) {
-    let errMsg = result.stderr;
-    try { errMsg = JSON.parse(result.stderr).error; } catch {}
+  const lastStderr = result.stderr.split('\n').filter(l => l.trim()).at(-1) ?? '';
+  if (result.exitCode !== 0 || lastStderr.includes('"error"')) {
+    let errMsg = lastStderr;
+    try { errMsg = JSON.parse(lastStderr).error ?? lastStderr; } catch {}
     return { url, title: '', content: '', error: errMsg };
   }
 
+  const jsonLine = result.stdout.split('\n').reverse().find(l => l.trim().startsWith('{'));
+  if (!jsonLine) {
+    return { url, title: '', content: result.stdout, error: 'No JSON output from script' };
+  }
   try {
-    const parsed = JSON.parse(result.stdout);
+    const parsed = JSON.parse(jsonLine);
     return { url, title: parsed.title ?? '', content: parsed.content ?? '' };
   } catch {
-    return { url, title: '', content: result.stdout };
+    return { url, title: '', content: result.stdout, error: 'Failed to parse script output' };
   }
 }
