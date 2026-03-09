@@ -64,6 +64,13 @@ export const TOOLS: ToolDefinition[] = [
     requiresEnv: ['GITHUB_TOKEN', 'VERCEL_TOKEN'],
   },
   {
+    id: 'preview_app',
+    name: 'Preview App (E2B)',
+    description: 'Preview a Next.js app in E2B sandbox before Vercel deploy',
+    installed: true,
+    requiresEnv: ['E2B_API_KEY'],
+  },
+  {
     id: 'self_modify_request',
     name: 'Self-Modify',
     description: 'Generate and propose code changes to the Jarvis codebase using Opus',

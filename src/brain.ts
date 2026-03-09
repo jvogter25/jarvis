@@ -124,6 +124,32 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['project_name', 'slug', 'description', 'build_type', 'target_audience', 'files'],
     },
   },
+  preview_app: {
+    name: 'preview_app',
+    description: 'Preview a web project in E2B sandbox BEFORE deploying to Vercel. Use this instead of build_app when Jake wants to review before deploying, or when building for a project with limited Vercel slots. Returns a live preview URL valid for 1hr. Jake says "ship it" to trigger the full Vercel deploy.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        project_name: { type: 'string' },
+        slug: { type: 'string' },
+        description: { type: 'string' },
+        build_type: { type: 'string', enum: ['landing_page', 'full_app'] },
+        target_audience: { type: 'string' },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              content: { type: 'string' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+      required: ['project_name', 'slug', 'description', 'build_type', 'target_audience', 'files'],
+    },
+  },
   self_modify_request: {
     name: 'self_modify_request',
     description: 'Generate and propose a code change to the Jarvis codebase. Use when Jake asks to add a new integration, change behavior, or install a new tool. Also use when Jake pastes a URL for a tool and wants to add it. Opus writes and reviews all code. Jake approves in plain English — never shows diffs. For safe changes (new files only) Jake says yes/no. For core changes (editing existing files) a GitHub PR is opened.',
@@ -179,6 +205,13 @@ export interface ToolCallResult {
   stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
   selfModifyProposal?: { plan: import('./tools/self-modify.js').SelfModifyPlan; message: string };
   createProjectResult?: { slug: string; generalChannelId: string; githubRepo: string };
+  previewResult?: {
+    slug: string;
+    previewUrl: string;
+    sandboxId: string;
+    files: Array<{ path: string; content: string }>;
+    plan: import('./tools/builder.js').BuildPlan;
+  };
 }
 
 export interface ThinkResult {
@@ -272,6 +305,27 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         const msg = (err as Error).message;
         console.error(`[build_app] Failed:`, err);
         return { toolName: name, output: `Build failed: ${msg}` };
+      }
+    }
+
+    case 'preview_app': {
+      const { previewProject } = await import('./tools/builder.js');
+      try {
+        const plan = {
+          projectName: input.project_name as string,
+          slug: input.slug as string,
+          description: input.description as string,
+          buildType: input.build_type as 'landing_page' | 'full_app',
+          targetAudience: input.target_audience as string,
+        };
+        const result = await previewProject(plan, input.files as Array<{ path: string; content: string }>);
+        return {
+          toolName: name,
+          output: `Preview live for **${result.slug}**: ${result.previewUrl}\n\nURL is valid for ~1hr. Say **"ship it"** to deploy to Vercel, or tell me what to change.`,
+          previewResult: { ...result, plan },
+        };
+      } catch (err) {
+        return { toolName: name, output: `Preview failed: ${(err as Error).message}` };
       }
     }
 

@@ -32,6 +32,23 @@ const pendingPRApproval = new Map<string, {
   plan: SelfModifyPlan;
 }>();
 
+interface PendingPreviewEntry {
+  slug: string;
+  previewUrl: string;
+  sandboxId: string;
+  files: Array<{ path: string; content: string }>;
+  plan: {
+    projectName: string;
+    slug: string;
+    description: string;
+    buildType: 'landing_page' | 'full_app';
+    targetAudience: string;
+    components?: string[];
+  };
+}
+
+const pendingPreviewApproval = new Map<string, PendingPreviewEntry>();
+
 function isShipApproval(text: string, slug?: string): boolean {
   const lower = text.toLowerCase().trim();
   const exactPhrases = ['ship it', 'go live', 'approve', 'push it', 'launch it'];
@@ -209,6 +226,35 @@ export async function handleMessage(msg: DiscordMessage) {
     // Conversational — fall through with pending preserved
   }
 
+  // Check if we're waiting for E2B preview approval (ship it → full Vercel deploy)
+  const pendingPreview = pendingPreviewApproval.get(msg.channelId);
+  if (pendingPreview) {
+    if (isShipApproval(msg.content)) {
+      pendingPreviewApproval.delete(msg.channelId);
+      await msg.channel.send(`Deploying **${pendingPreview.slug}** to Vercel...`);
+      try {
+        const { buildProject } = await import('../tools/builder.js');
+        const result = await buildProject(pendingPreview.plan, pendingPreview.files, true);
+        await updateProject(pendingPreview.slug, { status: 'staging' });
+        await msg.channel.send(`Staging ready: ${result.stagingUrl}\n\nSay **"ship it"** again to promote to production.`);
+        pendingStagingApproval.set(msg.channelId, {
+          slug: result.slug,
+          stagingUrl: result.stagingUrl,
+          vercelProjectId: result.vercelProjectId,
+        });
+        await notifySlackEngineering(`🔧 Staging ready: *${result.slug}*\n${result.stagingUrl}`);
+      } catch (err) {
+        await msg.channel.send(`⚠️ Deploy failed: ${(err as Error).message}`);
+      }
+      return;
+    } else if (isNegative(msg.content)) {
+      pendingPreviewApproval.delete(msg.channelId);
+      await msg.channel.send(`Preview cancelled. Let me know when you want to rebuild or try a different approach.`);
+      return;
+    }
+    // Conversational — fall through with pending preserved
+  }
+
   // Check if we're waiting for staging approval
   const pendingStaging = pendingStagingApproval.get(msg.channelId);
   if (pendingStaging) {
@@ -302,6 +348,9 @@ export async function handleMessage(msg: DiscordMessage) {
       if (toolResult.selfModifyProposal) {
         pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
         await msg.channel.send(toolResult.selfModifyProposal.message);
+      }
+      if (toolResult.previewResult) {
+        pendingPreviewApproval.set(msg.channelId, toolResult.previewResult);
       }
     }
 
