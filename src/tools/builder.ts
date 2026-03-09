@@ -191,6 +191,16 @@ export async function buildProject(
 ): Promise<BuildResult> {
   // Sanitize slug: lowercase, hyphens only
   plan.slug = plan.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+  // If slug already exists in Supabase, append -2, -3, etc.
+  const { getProject } = await import('../memory/supabase.js');
+  let uniqueSlug = plan.slug;
+  let attempt = 2;
+  while (await getProject(uniqueSlug)) {
+    uniqueSlug = `${plan.slug}-${attempt++}`;
+  }
+  plan.slug = uniqueSlug;
+
   console.log(`[build] Starting build for ${plan.slug} (${plan.buildType}), ${generatedFiles.length} files`);
 
   await createProject({
