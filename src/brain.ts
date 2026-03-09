@@ -47,7 +47,7 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   },
   browse_web: {
     name: 'browse_web',
-    description: 'Fetch and extract readable text content from a URL using Jina.ai Reader. Returns page title and markdown text. Use for reading articles, researching pages, extracting written content. CANNOT click, fill forms, inspect CSS, run JavaScript, or take screenshots — it is read-only text extraction. For interactive browser automation, use request_tool_install to ask for Playwright.',
+    description: 'Fetch and extract readable text content from a URL using Jina.ai Reader. Returns page title and markdown text. Use for reading articles, researching pages, extracting written content. CANNOT click, fill forms, inspect CSS, run JavaScript, or take screenshots — it is read-only text extraction. For interactive browser automation, use `self_modify_request` to add Playwright.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -79,18 +79,6 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
         playwright_code: { type: 'string', description: 'Playwright JS code to run after page.goto(). Use page.* methods. console.log() any results to return them.' },
       },
       required: ['url', 'playwright_code'],
-    },
-  },
-  request_tool_install: {
-    name: 'request_tool_install',
-    description: 'Request installation of a capability you need but do not currently have. This will ask Jake for permission before installing.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        capability: { type: 'string', description: 'What capability you need (e.g. "Stripe API", "Twilio SMS")' },
-        reason: { type: 'string', description: 'Why you need it for this specific task' },
-      },
-      required: ['capability', 'reason'],
     },
   },
   get_design_suggestions: {
@@ -221,16 +209,6 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         return { toolName: name, output: `Playwright failed: ${result.error}` };
       }
       return { toolName: name, output: result.result };
-    }
-
-    case 'request_tool_install': {
-      const capability = input.capability as string;
-      const reason = input.reason as string;
-      return {
-        toolName: name,
-        output: `Install request noted for: ${capability}`,
-        installRequest: { capability, reason },
-      };
     }
 
     case 'get_design_suggestions': {
