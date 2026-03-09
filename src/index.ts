@@ -4,7 +4,7 @@ import cron from 'node-cron';
 import { createDiscordClient } from './discord/client.js';
 import { runResearchLoop } from './research/loop.js';
 import { runOvernightTraining } from './overnight/trainer.js';
-import { postMorningBriefing } from './overnight/briefing.js';
+import { postMorningBriefing, postProjectMorningBriefings, postProjectOvernightLogs } from './overnight/briefing.js';
 import { runProductPulse } from './overnight/product-pulse.js';
 import { runToolDiscovery } from './overnight/tool-discovery.js';
 
@@ -24,11 +24,13 @@ async function main() {
   // Overnight training: 2am
   cron.schedule('0 2 * * *', () => {
     runOvernightTraining(discord).catch(console.error);
+    postProjectOvernightLogs(discord).catch(console.error);
   });
 
   // Morning briefing: 7am
   cron.schedule('0 7 * * *', () => {
     postMorningBriefing(discord).catch(console.error);
+    postProjectMorningBriefings(discord).catch(console.error);
   });
 
   // Weekly product pulse: Mondays at 8am
