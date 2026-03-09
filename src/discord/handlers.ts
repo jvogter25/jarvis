@@ -12,8 +12,22 @@ function isSendable(channel: DiscordMessage['channel']): channel is SendableChan
 }
 
 function extractHtml(text: string): string | null {
-  const match = text.match(/```html\n([\s\S]*?)```/) || text.match(/<!DOCTYPE html[\s\S]*<\/html>/i);
-  if (match) return match[1] ?? match[0];
+  // Match ```html or ``` code fences (with optional \r before \n)
+  const fenceMatch = text.match(/```(?:html)?\r?\n([\s\S]*?)```/i);
+  if (fenceMatch) {
+    const content = fenceMatch[1].trim();
+    if (content.toLowerCase().includes('<html') || content.toLowerCase().includes('<!doctype')) {
+      console.log(`extractHtml: found fenced HTML (${content.length} chars)`);
+      return content;
+    }
+  }
+  // Match bare <!DOCTYPE html ... </html>
+  const doctypeMatch = text.match(/<!DOCTYPE html[\s\S]*?<\/html>/i);
+  if (doctypeMatch) {
+    console.log(`extractHtml: found bare DOCTYPE HTML (${doctypeMatch[0].length} chars)`);
+    return doctypeMatch[0];
+  }
+  console.log(`extractHtml: no HTML found in reply (${text.length} chars)`);
   return null;
 }
 
