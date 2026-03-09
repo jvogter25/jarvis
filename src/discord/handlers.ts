@@ -27,7 +27,7 @@ function extractHtml(text: string): string | null {
     console.log(`extractHtml: found bare DOCTYPE HTML (${doctypeMatch[0].length} chars)`);
     return doctypeMatch[0];
   }
-  console.log(`extractHtml: no HTML found in reply (${text.length} chars)`);
+  console.log(`extractHtml: no HTML found in reply (${text.length} chars). First 300: ${JSON.stringify(text.slice(0, 300))}`);
   return null;
 }
 
