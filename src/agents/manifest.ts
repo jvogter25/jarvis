@@ -32,6 +32,12 @@ function parseFrontmatter(content: string): { name: string; description: string 
 export function loadAgents(): Agent[] {
   if (_agents) return _agents;
 
+  if (!fs.existsSync(AGENTS_DIR)) {
+    console.warn('Agency agents directory not found at:', AGENTS_DIR);
+    _agents = [];
+    return _agents;
+  }
+
   const agentFiles: string[] = [];
 
   function walkDir(dir: string) {

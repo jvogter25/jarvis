@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import fs from 'fs';
 import cron from 'node-cron';
 import { createDiscordClient } from './discord/client.js';
 import { runResearchLoop } from './research/loop.js';
@@ -7,6 +8,8 @@ import { postMorningBriefing } from './overnight/briefing.js';
 
 async function main() {
   console.log('Jarvis starting...');
+  try { console.log('APP contents:', fs.readdirSync('/app').join(', ')); } catch {}
+  console.log('CWD:', process.cwd());
 
   const discord = createDiscordClient();
   await discord.login(process.env.DISCORD_TOKEN);
