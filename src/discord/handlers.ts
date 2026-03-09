@@ -4,7 +4,7 @@ import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
-import { activateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
+import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
 
@@ -179,6 +179,14 @@ export async function handleMessage(msg: DiscordMessage) {
       return;
     }
     // Conversational message — fall through with staging state preserved
+  }
+
+  // Overnight mode deactivation
+  const lower = msg.content.toLowerCase().trim();
+  if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
+    deactivateOvernightMode();
+    await msg.channel.send('Overnight mode deactivated. Builds can now go to production again.');
+    return;
   }
 
   // Overnight mode trigger detection

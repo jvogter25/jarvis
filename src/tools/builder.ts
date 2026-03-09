@@ -1,6 +1,7 @@
 import { createRepoFromTemplate, createBranch, upsertFile, mergeBranch } from '../github/client.js';
 import { readDesignTokens, scanDesignLibrary, generateCssVars } from './design.js';
 import { createProject, updateProject } from '../memory/supabase.js';
+import { isOvernightActive } from '../overnight/mode.js';
 
 const TEMPLATE_REPO = 'jarvis-template';
 const OWNER = process.env.GITHUB_OWNER!;
@@ -94,6 +95,9 @@ async function pollStagingUrl(vercelProjectId: string, timeoutMs = 120000): Prom
 }
 
 export async function promoteToProduction(slug: string): Promise<string> {
+  if (isOvernightActive()) {
+    throw new Error('Overnight mode is active — production deploys are blocked until you deactivate it. Say "deactivate overnight mode" to unlock.');
+  }
   await mergeBranch(slug, 'staging', 'main');
   await new Promise(r => setTimeout(r, 5000));
   return `https://${slug}.vercel.app`;

@@ -25,7 +25,12 @@ ${opportunities.slice(0, 3).map(o => `- [${o.score}/100] ${o.title}: ${o.summary
       context
     )).text;
 
-    const overnightSummary = await generateOvernightSummary();
+    let overnightSummary = '';
+    try {
+      overnightSummary = await generateOvernightSummary();
+    } catch (err) {
+      console.error('Overnight summary failed (non-fatal):', err);
+    }
     const fullBriefing = overnightSummary
       ? `${briefing}\n\n---\n${overnightSummary}`
       : briefing;
