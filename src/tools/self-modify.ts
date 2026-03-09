@@ -59,7 +59,7 @@ If no npm package is needed, omit "npmPackage". If no env var is needed, omit "e
     'You are a TypeScript expert building production tools for an AI orchestrator.',
     [],
     writePrompt,
-    { model: 'opus', noTools: true }
+    { model: 'opus', noTools: true, maxTokens: 32000 }
   );
 
   let generated: {
@@ -102,7 +102,7 @@ If fixes are needed, include corrected file objects in "fixes": [{"path": "...",
     'You are a senior TypeScript engineer reviewing production code for correctness and safety.',
     [],
     reviewPrompt,
-    { model: 'opus', noTools: true }
+    { model: 'opus', noTools: true, maxTokens: 32000 }
   );
 
   let review: { approved: boolean; notes: string; fixes?: Array<{ path: string; content: string }> };

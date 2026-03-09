@@ -398,6 +398,8 @@ export interface ThinkOptions {
   model?: ModelTier;
   /** Skip tool injection — for pure text/analysis calls like scoring */
   noTools?: boolean;
+  /** Override max_tokens (default 8192). Use 32000 for large codegen responses. */
+  maxTokens?: number;
 }
 
 /**
@@ -413,7 +415,7 @@ export async function think(
   userMessage: string,
   options: ThinkOptions = {}
 ): Promise<ThinkResult> {
-  const { model = 'sonnet', noTools = false } = options;
+  const { model = 'sonnet', noTools = false, maxTokens = 8192 } = options;
   const modelId = MODEL_IDS[model];
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
@@ -442,7 +444,7 @@ export async function think(
     iterations++;
     const response: Anthropic.Message = await client.messages.create({
       model: modelId,
-      max_tokens: 8192,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages,
       ...(activeToolSchemas.length > 0 ? { tools: activeToolSchemas } : {}),
