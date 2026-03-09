@@ -4,8 +4,14 @@ import { fileURLToPath } from 'url';
 import { Agent } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const AGENTS_DIR = path.join(__dirname, '../../agency-agents');
-console.log('DEBUG __dirname:', __dirname, 'AGENTS_DIR:', AGENTS_DIR);
+const candidates = [
+  '/app/agency-agents',                                          // Railway absolute
+  path.join(__dirname, '../../agency-agents'),                   // dist/agents -> app root
+  path.join(__dirname, '../../../agency-agents'),                // dist/agents -> one above
+  path.join(process.cwd(), 'agency-agents'),                    // cwd fallback
+];
+const AGENTS_DIR = candidates.find(d => { try { fs.readdirSync(d); return true; } catch { return false; } }) ?? candidates[0];
+console.log('AGENTS_DIR resolved:', AGENTS_DIR);
 
 let _agents: Agent[] | null = null;
 
