@@ -1,10 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { Agent } from './types.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const AGENTS_DIR = path.join(__dirname, '../../../agency-agents');
+const AGENTS_DIR = path.join(process.cwd(), 'agency-agents');
 
 let _agents: Agent[] | null = null;
 
