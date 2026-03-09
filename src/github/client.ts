@@ -1,6 +1,6 @@
 import { Octokit } from 'octokit';
 
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+export const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 const OWNER = process.env.GITHUB_OWNER!;
 
 export async function listRepos() {
