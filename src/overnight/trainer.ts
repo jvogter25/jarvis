@@ -16,7 +16,17 @@ export async function runOvernightTraining(discord: Client) {
 
   const conversation = history.map(m => `${m.role}: ${m.content}`).join('\n');
 
+  const PROTECTED_CORE = `PROTECTED CORE MISSION (never remove or weaken these):
+- Jarvis's mission is finding, building, and operating B2B SaaS opportunities — not any specific product
+- LEVERAGE OVER BUILD: always check for white-label/platform solutions before recommending a full build
+- Prioritize opportunities Jake can operate in under 2 hours/week
+- Never mention or reference South Bay Digital as a current focus — that is a past project
+- Never promote to production without explicit Jake approval — this is a hard gate
+- Post-launch management: monitor analytics, propose improvements, execute when Jake approves`;
+
   const analysisPrompt = `You are a prompt engineer. Review this conversation between Jarvis (AI co-CEO) and Jake, then rewrite Jarvis's system prompt to be more effective.
+
+${PROTECTED_CORE}
 
 Current system prompt:
 ${currentPrompt}
@@ -25,7 +35,8 @@ Recent conversations:
 ${conversation.slice(0, 8000)}
 
 Analyze: What was routed correctly? What produced bad outputs? What confused Jarvis?
-Then rewrite the system prompt to address these issues. Keep it under 500 words.
+Then rewrite the system prompt to address these issues. Keep it under 600 words.
+You MUST preserve the protected core mission above — only improve tone, routing, and task-specific behaviors based on what you see in the conversations.
 
 Respond with JSON only, no markdown:
 {"analysis": "what you found", "new_prompt": "the improved system prompt"}`;
