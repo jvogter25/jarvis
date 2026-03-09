@@ -3,6 +3,7 @@ import { Message } from './memory/supabase.js';
 import { serveHtml } from './sandbox/client.js';
 import { runShell } from './tools/shell.js';
 import { browseUrl } from './tools/browser.js';
+import { searchWeb } from './tools/search.js';
 import { getInstalledTools } from './tools/registry.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -54,6 +55,18 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
         task: { type: 'string', description: 'What to extract or analyze from the page' },
       },
       required: ['url', 'task'],
+    },
+  },
+  search_web: {
+    name: 'search_web',
+    description: 'Search the web for any topic. Returns titles, URLs, and descriptions. Use this to discover relevant pages, then use browse_web to read specific pages in depth.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        count: { type: 'number', description: 'Number of results to return (default 5, max 20)' },
+      },
+      required: ['query'],
     },
   },
   request_tool_install: {
@@ -114,6 +127,19 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         return { toolName: name, output: `Browse failed: ${result.error}` };
       }
       return { toolName: name, output: `Title: ${result.title}\n\nContent:\n${result.content}` };
+    }
+
+    case 'search_web': {
+      const query = input.query as string;
+      const count = (input.count as number | undefined) ?? 5;
+      const response = await searchWeb(query, count);
+      if (response.error) {
+        return { toolName: name, output: `Search failed: ${response.error}` };
+      }
+      const formatted = response.results
+        .map((r, i) => `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.description}`)
+        .join('\n\n');
+      return { toolName: name, output: formatted || 'No results found.' };
     }
 
     case 'request_tool_install': {

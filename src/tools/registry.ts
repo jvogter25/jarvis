@@ -35,6 +35,13 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['GITHUB_TOKEN'],
   },
+  {
+    id: 'search_web',
+    name: 'Web Search',
+    description: 'Search the web by query using Brave Search. Returns titles, URLs, and descriptions.',
+    installed: true,
+    requiresEnv: ['BRAVE_SEARCH_API_KEY'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {
