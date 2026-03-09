@@ -24,7 +24,7 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   },
   run_shell: {
     name: 'run_shell',
-    description: 'Run shell commands in a sandboxed environment. Use for code execution, package installs, file processing, data transforms, etc.',
+    description: 'Run shell commands in a sandboxed E2B environment. Use for code execution, data processing, file transforms, Python/Node scripts. The sandbox has Node.js and Python pre-installed but does NOT have Playwright, browser binaries, or GUI tools. Do not attempt to use Playwright or any browser automation via this tool.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -47,7 +47,7 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   },
   browse_web: {
     name: 'browse_web',
-    description: 'Navigate to a URL with a real browser and extract page content, text, titles. Use for research, competitor analysis, audits.',
+    description: 'Fetch and extract readable text content from a URL using Jina.ai Reader. Returns page title and markdown text. Use for reading articles, researching pages, extracting written content. CANNOT click, fill forms, inspect CSS, run JavaScript, or take screenshots — it is read-only text extraction. For interactive browser automation, use request_tool_install to ask for Playwright.',
     input_schema: {
       type: 'object' as const,
       properties: {
