@@ -157,6 +157,19 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['domain', 'context'],
     },
   },
+  create_project: {
+    name: 'create_project',
+    description: 'Create a new project workspace — Discord category with 7 channels, GitHub repo, and isolated system prompt. Use when Jake says "create project" or approves a research opportunity for building. Ask for project name, description, and build type if not provided.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        project_name: { type: 'string', description: 'Human-readable project name, e.g. "South Bay Digital"' },
+        slug: { type: 'string', description: 'URL-safe slug, lowercase hyphens only, e.g. "south-bay-digital"' },
+        description: { type: 'string', description: 'One sentence describing what this project is and who it is for' },
+      },
+      required: ['project_name', 'slug', 'description'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -165,6 +178,7 @@ export interface ToolCallResult {
   deployedUrl?: string;  // set when deploy_html succeeds
   stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
   selfModifyProposal?: { plan: import('./tools/self-modify.js').SelfModifyPlan; message: string };
+  createProjectResult?: { slug: string; generalChannelId: string; githubRepo: string };
 }
 
 export interface ThinkResult {
@@ -280,6 +294,34 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       return { toolName: name, output: result };
     }
 
+    case 'create_project': {
+      const { setupProject } = await import('./tools/project-setup.js');
+      const { getDiscordClient } = await import('./discord/client.js');
+      const discord = getDiscordClient();
+      if (!discord) {
+        return { toolName: name, output: 'Discord client not available — project setup failed.' };
+      }
+      try {
+        const result = await setupProject(
+          discord,
+          input.project_name as string,
+          (input.slug as string).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+          input.description as string
+        );
+        return {
+          toolName: name,
+          output: `Project **${input.project_name}** created!\nDiscord category ready with 7 channels.\nGitHub: ${result.githubRepo}\nStart building in <#${result.generalChannelId}>`,
+          createProjectResult: {
+            slug: result.slug,
+            generalChannelId: result.generalChannelId,
+            githubRepo: result.githubRepo,
+          },
+        };
+      } catch (err) {
+        return { toolName: name, output: `Project setup failed: ${(err as Error).message}` };
+      }
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -322,10 +364,11 @@ export async function think(
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
-    const alwaysAvailable = ['self_modify_request', 'search_knowledge'];
+    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project'];
     return [
       TOOL_SCHEMAS.self_modify_request,
       TOOL_SCHEMAS.search_knowledge,
+      TOOL_SCHEMAS.create_project,
       ...Object.values(TOOL_SCHEMAS).filter(
         t => !alwaysAvailable.includes(t.name) && installedToolIds.has(t.name)
       ),

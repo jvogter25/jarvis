@@ -76,6 +76,13 @@ export const TOOLS: ToolDefinition[] = [
     description: 'Search training material Jake has fed Jarvis by domain',
     installed: true,
   },
+  {
+    id: 'create_project',
+    name: 'Create Project',
+    description: 'Create Discord workspace + GitHub repo + project system prompt',
+    installed: true,
+    requiresEnv: ['DISCORD_GUILD_ID', 'GITHUB_TOKEN'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {

@@ -2,6 +2,12 @@ import { Client, GatewayIntentBits, Events } from 'discord.js';
 import { handleMessage, handleDesignMessage, handleTrainingMessage } from './handlers.js';
 import { CHANNELS } from './channels.js';
 
+let _client: Client | null = null;
+
+export function getDiscordClient(): Client | null {
+  return _client;
+}
+
 export function createDiscordClient(): Client {
   const client = new Client({
     intents: [
@@ -12,6 +18,7 @@ export function createDiscordClient(): Client {
   });
 
   client.once(Events.ClientReady, (c) => {
+    _client = client;
     console.log(`Discord connected as ${c.user.tag}`);
   });
 
