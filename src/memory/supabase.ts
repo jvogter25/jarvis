@@ -100,3 +100,59 @@ export async function hasOpportunityByTitle(title: string): Promise<boolean> {
     .eq('title', title);
   return (count ?? 0) > 0;
 }
+
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  status: 'planning' | 'building' | 'staging' | 'live' | 'archived';
+  build_type: 'landing_page' | 'full_app';
+  description?: string;
+  github_repo?: string;
+  vercel_project_id?: string;
+  staging_url?: string;
+  production_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createProject(input: {
+  name: string;
+  slug: string;
+  build_type: 'landing_page' | 'full_app';
+  description?: string;
+}): Promise<Project> {
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({ ...input, status: 'planning' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Project;
+}
+
+export async function updateProject(slug: string, updates: Partial<Project>): Promise<void> {
+  const { error } = await supabase
+    .from('projects')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('slug', slug);
+  if (error) throw error;
+}
+
+export async function getProjects(status?: Project['status']): Promise<Project[]> {
+  const { data, error } = status
+    ? await supabase.from('projects').select('*').eq('status', status).order('created_at', { ascending: false })
+    : await supabase.from('projects').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Project[];
+}
+
+export async function getProject(slug: string): Promise<Project | null> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+  if (error) return null;
+  return data as Project;
+}

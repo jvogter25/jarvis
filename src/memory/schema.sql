@@ -30,3 +30,20 @@ insert into system_prompts (version, content) values (
   1,
   'You are Jarvis, Jake''s AI co-CEO. You help Jake run side hustles by coordinating a team of specialized AI agents. You are strategic, direct, and focused on business results. Jake is busy with a full-time job — keep responses concise and actionable. Current focus: South Bay Digital (GHL AI receptionist service for contractors).'
 );
+
+create table if not exists projects (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text unique not null,
+  status text not null default 'planning',
+  -- status: planning | building | staging | live | archived
+  build_type text not null default 'landing_page',
+  -- build_type: landing_page | full_app
+  description text,
+  github_repo text,
+  vercel_project_id text,
+  staging_url text,
+  production_url text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
