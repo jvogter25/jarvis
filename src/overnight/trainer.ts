@@ -1,7 +1,22 @@
 import { Client, TextChannel } from 'discord.js';
-import { getRecentMessages, getSystemPrompt, saveSystemPrompt } from '../memory/supabase.js';
+import { getRecentMessages, getSystemPrompt, saveSystemPrompt, getRecentKnowledge, getAllProjectConfigs, updateProjectConfig, getProjectConfig } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { CHANNELS } from '../discord/channels.js';
+
+async function syncProjectPrompt(slug: string, globalPrompt: string): Promise<void> {
+  const project = await getProjectConfig(slug);
+  if (!project) return;
+
+  // Preserve the project-specific context block appended at creation
+  const contextMatch = project.system_prompt.match(/---\nPROJECT CONTEXT:[\s\S]+$/);
+  const projectContext = contextMatch ? '\n\n' + contextMatch[0] : '';
+
+  await updateProjectConfig(slug, {
+    system_prompt: globalPrompt + projectContext,
+    last_synced_at: new Date().toISOString(),
+  });
+  console.log(`[trainer] Synced project prompt: ${slug}`);
+}
 
 export async function runOvernightTraining(discord: Client) {
   console.log('Overnight training: starting...');
@@ -46,6 +61,46 @@ Respond with JSON only, no markdown:
     const text = (await think('You are a prompt engineering assistant.', [], analysisPrompt, { model: 'sonnet', noTools: true })).text;
     const parsed = JSON.parse(text);
     await saveSystemPrompt(parsed.new_prompt);
+
+    // ── Knowledge fold: incorporate recent training material into the prompt ──
+    const recentKnowledge = await getRecentKnowledge(15);
+    if (recentKnowledge.length > 0) {
+      const knowledgeSummary = recentKnowledge
+        .map(k => `[${k.domain}] ${k.title}: ${k.key_insights.slice(0, 2).join('; ')}`)
+        .join('\n');
+
+      const knowledgePrompt = `You are updating a system prompt to incorporate recent training material.
+
+Current prompt:
+${parsed.new_prompt}
+
+Recent training material (${recentKnowledge.length} entries):
+${knowledgeSummary}
+
+Incorporate the key insights naturally into the relevant sections of the prompt. Keep it under 700 words. Return the updated prompt only, no markdown.`;
+
+      try {
+        const withKnowledge = (await think(
+          'You are a prompt engineer incorporating domain knowledge.',
+          [],
+          knowledgePrompt,
+          { model: 'sonnet', noTools: true }
+        )).text;
+        await saveSystemPrompt(withKnowledge);
+        parsed.new_prompt = withKnowledge;
+      } catch (err) {
+        console.error('[trainer] Knowledge fold failed (non-fatal):', err);
+      }
+    }
+
+    // ── Weekly project prompt sync ─────────────────────────────────────────────
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const projects = await getAllProjectConfigs();
+    for (const project of projects) {
+      if (project.last_synced_at < oneWeekAgo) {
+        await syncProjectPrompt(project.slug, parsed.new_prompt);
+      }
+    }
 
     const logChannel = discord.channels.cache.get(CHANNELS.OVERNIGHT_LOG) as TextChannel | undefined;
     if (logChannel) {
