@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { Agent } from './types.js';
 
-const AGENTS_DIR = path.join(process.cwd(), 'agency-agents');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// dist/agents/ -> ../../agency-agents (works both locally and on Railway)
+const AGENTS_DIR = path.join(__dirname, '../../agency-agents');
 
 let _agents: Agent[] | null = null;
 
