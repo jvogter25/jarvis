@@ -37,7 +37,8 @@ export async function handleMessage(msg: DiscordMessage) {
       await msg.channel.send(chunk);
     }
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     console.error('Error handling message:', err);
-    await msg.channel.send('⚠️ Something went wrong. Check the logs.');
+    await msg.channel.send(`⚠️ Error: ${errMsg}`);
   }
 }
