@@ -86,7 +86,9 @@ async function pollStagingUrl(vercelProjectId: string, timeoutMs = 120000): Prom
         d => d.state === 'READY' && d.meta?.githubCommitRef === 'staging'
       );
       if (ready) return `https://${ready.url}`;
-    } catch {}
+    } catch (err) {
+      console.error('pollStagingUrl error:', err);
+    }
   }
   return '';
 }
@@ -120,18 +122,18 @@ export async function buildProject(
   // Create staging branch
   await createBranch(plan.slug, 'staging');
 
-  // Push design tokens CSS to main (template base)
+  // Push design tokens CSS and all generated files to staging branch
   const tokens = await readDesignTokens();
   await upsertFile(
     plan.slug,
     'app/design-tokens.css',
     generateCssVars(tokens),
-    `feat: inject design tokens for ${plan.slug}`
+    `feat: inject design tokens for ${plan.slug}`,
+    'staging'
   );
 
-  // Push all generated files
   for (const file of generatedFiles) {
-    await upsertFile(plan.slug, file.path, file.content, `feat: build ${plan.slug}`);
+    await upsertFile(plan.slug, file.path, file.content, `feat: build ${plan.slug}`, 'staging');
   }
 
   await updateProject(plan.slug, { status: 'staging' });

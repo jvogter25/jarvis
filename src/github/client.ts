@@ -8,10 +8,12 @@ export async function listRepos() {
   return data.map(r => ({ name: r.name, url: r.html_url, private: r.private }));
 }
 
-export async function upsertFile(repo: string, filePath: string, content: string, message: string) {
+export async function upsertFile(repo: string, filePath: string, content: string, message: string, branch?: string) {
   let sha: string | undefined;
   try {
-    const { data } = await octokit.rest.repos.getContent({ owner: OWNER, repo, path: filePath });
+    const params: Record<string, string> = { owner: OWNER, repo, path: filePath };
+    if (branch) params.ref = branch;
+    const { data } = await octokit.rest.repos.getContent({ owner: OWNER, repo, path: filePath, ...(branch ? { ref: branch } : {}) });
     if (!Array.isArray(data) && data.type === 'file') sha = data.sha;
   } catch {
     // File doesn't exist yet
@@ -24,6 +26,7 @@ export async function upsertFile(repo: string, filePath: string, content: string
     message,
     content: Buffer.from(content).toString('base64'),
     sha,
+    ...(branch ? { branch } : {}),
   });
 }
 
