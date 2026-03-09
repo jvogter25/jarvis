@@ -158,3 +158,126 @@ export async function getProject(slug: string): Promise<Project | null> {
   if (error) return null;
   return data as Project;
 }
+
+// ─── Knowledge Base ───────────────────────────────────────────────────────────
+
+export interface KnowledgeEntry {
+  id: string;
+  domain: string;
+  source_url?: string;
+  title: string;
+  content: string;
+  key_insights: string[];
+  created_at: string;
+}
+
+export async function saveKnowledge(entry: {
+  domain: string;
+  source_url?: string;
+  title: string;
+  content: string;
+  key_insights: string[];
+}): Promise<void> {
+  const { error } = await supabase.from('knowledge_base').insert(entry);
+  if (error) throw error;
+}
+
+export async function searchKnowledge(domain: string, limit = 5): Promise<KnowledgeEntry[]> {
+  const query = supabase
+    .from('knowledge_base')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  const { data, error } = domain === 'all'
+    ? await query
+    : await query.eq('domain', domain);
+
+  if (error) throw error;
+  return (data ?? []) as KnowledgeEntry[];
+}
+
+export async function getRecentKnowledge(limit = 20): Promise<KnowledgeEntry[]> {
+  const { data, error } = await supabase
+    .from('knowledge_base')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as KnowledgeEntry[];
+}
+
+// ─── Project Configs ──────────────────────────────────────────────────────────
+
+export interface ProjectChannels {
+  general: string;
+  research: string;
+  engineering: string;
+  marketing: string;
+  design: string;
+  morning_brief: string;
+  overnight_log: string;
+}
+
+export interface ProjectConfig {
+  id: string;
+  slug: string;
+  system_prompt: string;
+  last_synced_at: string;
+  discord_category_id: string;
+  channels: ProjectChannels;
+  github_repo?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createProjectConfig(input: {
+  slug: string;
+  system_prompt: string;
+  discord_category_id: string;
+  channels: ProjectChannels;
+  github_repo?: string;
+}): Promise<ProjectConfig> {
+  const { data, error } = await supabase
+    .from('project_configs')
+    .insert(input)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ProjectConfig;
+}
+
+export async function getProjectConfig(slug: string): Promise<ProjectConfig | null> {
+  const { data, error } = await supabase
+    .from('project_configs')
+    .select('*')
+    .eq('slug', slug)
+    .single();
+  if (error) return null;
+  return data as ProjectConfig;
+}
+
+export async function getAllProjectConfigs(): Promise<ProjectConfig[]> {
+  const { data, error } = await supabase
+    .from('project_configs')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ProjectConfig[];
+}
+
+export async function getProjectConfigByChannelId(channelId: string): Promise<ProjectConfig | null> {
+  const { data, error } = await supabase
+    .from('project_configs')
+    .select('*');
+  if (error) return null;
+  return (data ?? []).find((p: ProjectConfig) => Object.values(p.channels).includes(channelId)) ?? null;
+}
+
+export async function updateProjectConfig(slug: string, updates: Partial<Pick<ProjectConfig, 'system_prompt' | 'last_synced_at' | 'github_repo'>>): Promise<void> {
+  const { error } = await supabase
+    .from('project_configs')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('slug', slug);
+  if (error) throw error;
+}

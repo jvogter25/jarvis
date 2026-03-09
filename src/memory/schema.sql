@@ -53,3 +53,27 @@ create table if not exists projects (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+-- Knowledge base: training material Jake feeds Jarvis
+CREATE TABLE IF NOT EXISTS knowledge_base (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  domain text NOT NULL, -- 'sales', 'marketing', 'design', 'engineering', 'general'
+  source_url text,
+  title text NOT NULL,
+  content text NOT NULL,
+  key_insights jsonb NOT NULL DEFAULT '[]',
+  created_at timestamptz DEFAULT now()
+);
+
+-- Project configs: per-project system prompts + Discord channel map
+CREATE TABLE IF NOT EXISTS project_configs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  slug text UNIQUE NOT NULL,
+  system_prompt text NOT NULL,
+  last_synced_at timestamptz DEFAULT now(),
+  discord_category_id text NOT NULL,
+  channels jsonb NOT NULL DEFAULT '{}',
+  github_repo text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
