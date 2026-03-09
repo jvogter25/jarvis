@@ -136,6 +136,20 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['project_name', 'slug', 'description', 'build_type', 'target_audience', 'files'],
     },
   },
+  self_modify_request: {
+    name: 'self_modify_request',
+    description: 'Generate and propose a code change to the Jarvis codebase. Use when Jake asks to add a new integration, change behavior, or install a new tool. Also use when Jake pastes a URL for a tool and wants to add it. Opus writes and reviews all code. Jake approves in plain English — never shows diffs. For safe changes (new files only) Jake says yes/no. For core changes (editing existing files) a GitHub PR is opened.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        intent: {
+          type: 'string',
+          description: 'Plain-English description of what to build or change, e.g. "add Resend email integration" or "change research loop to run every 4 hours" or "add Stripe payments tool"',
+        },
+      },
+      required: ['intent'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -144,6 +158,7 @@ export interface ToolCallResult {
   deployedUrl?: string;  // set when deploy_html succeeds
   installRequest?: { capability: string; reason: string }; // set when install requested
   stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
+  selfModifyProposal?: { plan: import('./tools/self-modify.js').SelfModifyPlan; message: string };
 }
 
 export interface ThinkResult {
@@ -250,6 +265,16 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       }
     }
 
+    case 'self_modify_request': {
+      const { requestSelfModify } = await import('./tools/self-modify.js');
+      const result = await requestSelfModify(input.intent as string);
+      return {
+        toolName: name,
+        output: result.message,
+        ...(result.plan ? { selfModifyProposal: { plan: result.plan, message: result.message } } : {}),
+      };
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -293,9 +318,9 @@ export async function think(
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
     return [
-      TOOL_SCHEMAS.request_tool_install,
+      TOOL_SCHEMAS.self_modify_request,
       ...Object.values(TOOL_SCHEMAS).filter(
-        t => t.name !== 'request_tool_install' && installedToolIds.has(t.name)
+        t => t.name !== 'self_modify_request' && installedToolIds.has(t.name)
       ),
     ];
   })();
