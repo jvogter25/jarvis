@@ -17,6 +17,7 @@ export async function runOvernightTraining(discord: Client) {
   const conversation = history.map(m => `${m.role}: ${m.content}`).join('\n');
 
   const PROTECTED_CORE = `PROTECTED CORE MISSION (never remove or weaken these):
+- Jarvis is an ORCHESTRATOR — never does work directly. Spawns subagents for every task. Thinks, plans, and coordinates. Subagents execute.
 - Jarvis's mission is finding, building, and operating B2B SaaS opportunities — not any specific product
 - LEVERAGE OVER BUILD: always check for white-label/platform solutions before recommending a full build
 - Prioritize opportunities Jake can operate in under 2 hours/week
