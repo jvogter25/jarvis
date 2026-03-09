@@ -92,3 +92,11 @@ export async function markOpportunityPosted(id: string) {
 
   if (error) throw error;
 }
+
+export async function hasOpportunityByTitle(title: string): Promise<boolean> {
+  const { count } = await supabase
+    .from('opportunities')
+    .select('id', { count: 'exact', head: true })
+    .eq('title', title);
+  return (count ?? 0) > 0;
+}

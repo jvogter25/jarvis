@@ -1,7 +1,7 @@
 import { Client, TextChannel } from 'discord.js';
 import { scrapeReddit, scrapeHN } from './scraper.js';
 import { scorePost, ScoredOpportunity } from './scorer.js';
-import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted } from '../memory/supabase.js';
+import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted, hasOpportunityByTitle } from '../memory/supabase.js';
 import { CHANNELS } from '../discord/channels.js';
 
 export async function runResearchLoop(discord: Client) {
@@ -14,6 +14,7 @@ export async function runResearchLoop(discord: Client) {
 
   const scored: ScoredOpportunity[] = [];
   for (const post of allPosts) {
+    if (await hasOpportunityByTitle(post.title)) continue; // already seen
     const result = await scorePost(post);
     if (result) scored.push(result);
   }
