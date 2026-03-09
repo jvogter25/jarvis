@@ -31,7 +31,7 @@ export async function runShell(
     let lastExitCode = 0;
 
     for (const cmd of commands) {
-      const result = await sandbox.commands.run(cmd);
+      const result = await sandbox.commands.run(cmd, { timeoutMs: 0 });
       if (result.stdout) stdoutParts.push(result.stdout);
       if (result.stderr) stderrParts.push(result.stderr);
       lastExitCode = result.exitCode ?? -1;
