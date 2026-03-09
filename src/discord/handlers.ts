@@ -4,6 +4,7 @@ import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModify, INSTALL_PLANS } from '../tools/self-modify.js';
+import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -30,6 +31,79 @@ function isAffirmative(text: string): boolean {
 
 function isNegative(text: string): boolean {
   return NO_WORDS.has(text.toLowerCase().trim());
+}
+
+export async function handleDesignMessage(msg: DiscordMessage) {
+  if (msg.author.bot) return;
+  if (!isSendable(msg.channel)) return;
+
+  await msg.channel.sendTyping();
+  const stopTyping = keepTyping(msg.channel);
+
+  try {
+    const content = msg.content.trim();
+
+    // Image attachment → save as inspiration
+    if (msg.attachments.size > 0) {
+      const attachment = msg.attachments.first()!;
+      if (attachment.contentType?.startsWith('image/')) {
+        const res = await fetch(attachment.url);
+        const buffer = await res.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        const ext = attachment.contentType.split('/')[1] ?? 'png';
+        const fileName = `${Date.now()}-${attachment.name ?? 'inspiration'}.${ext}`;
+        await saveInspiration(fileName, base64);
+        stopTyping();
+        await msg.channel.send(`Saved to inspiration library as \`${fileName}\`. I'll use this as visual context when building.`);
+        return;
+      }
+    }
+
+    // Code block → save as component
+    const codeBlockMatch = content.match(/```(?:tsx?|jsx?|html?)?\n([\s\S]+?)```/);
+    if (codeBlockMatch) {
+      const surrounding = content.replace(codeBlockMatch[0], '').trim();
+      const componentName = surrounding || `component-${Date.now()}`;
+      await saveComponent(componentName, codeBlockMatch[1]);
+      stopTyping();
+      await msg.channel.send(`Saved component as \`${componentName.replace(/\s+/g, '-').toLowerCase()}.tsx\`. I'll suggest it for relevant builds.`);
+      return;
+    }
+
+    // URL → extract CSS
+    const urlMatch = content.match(/https?:\/\/[^\s]+/);
+    if (urlMatch) {
+      const url = urlMatch[0];
+      await msg.channel.send(`Extracting design tokens from ${url}...`);
+      const extracted = await extractCssFromUrl(url);
+      const hasData = Object.values(extracted).some(v => v && Object.keys(v).length > 0);
+      if (!hasData) {
+        stopTyping();
+        await msg.channel.send(`Couldn't extract CSS variables from that URL — it may use non-standard styles. Any notes on what you liked about it?`);
+        return;
+      }
+      await updateDesignTokens(extracted, url);
+      const summary = Object.entries(extracted)
+        .filter(([, v]) => v && Object.keys(v).length > 0)
+        .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+        .join('\n');
+      stopTyping();
+      await msg.channel.send(`Design tokens updated from ${url}:\n\`\`\`json\n${summary}\n\`\`\``);
+      return;
+    }
+
+    // Fallback: show library status
+    const library = await scanDesignLibrary();
+    stopTyping();
+    await msg.channel.send(
+      `Design library: ${library.components.length} component(s) saved.\n${library.tokenSummary}\n\n` +
+      `Drop a URL to extract styles, paste a code block (with a component name above it) to save a component, or upload a screenshot for inspiration.`
+    );
+  } catch (err) {
+    stopTyping();
+    console.error('Error handling design message:', err);
+    await msg.channel.send('⚠️ Something went wrong with the design library.');
+  }
 }
 
 export async function handleMessage(msg: DiscordMessage) {
