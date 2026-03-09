@@ -138,6 +138,25 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['intent'],
     },
   },
+  search_knowledge: {
+    name: 'search_knowledge',
+    description: 'Search the knowledge base for relevant training material Jake has fed Jarvis. Use before writing copy (search marketing/sales), making design decisions (search design), or planning technical architecture (search engineering). Returns the most relevant insights for the current task.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        domain: {
+          type: 'string',
+          enum: ['sales', 'marketing', 'design', 'engineering', 'product', 'growth', 'general', 'any'],
+          description: 'Knowledge domain to search. Use "any" to search all domains.',
+        },
+        context: {
+          type: 'string',
+          description: 'What you are working on — used to select the most relevant insights',
+        },
+      },
+      required: ['domain', 'context'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -252,6 +271,15 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       };
     }
 
+    case 'search_knowledge': {
+      const { queryKnowledge } = await import('./tools/knowledge.js');
+      const result = await queryKnowledge(
+        input.domain as string,
+        input.context as string
+      );
+      return { toolName: name, output: result };
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -294,10 +322,12 @@ export async function think(
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
+    const alwaysAvailable = ['self_modify_request', 'search_knowledge'];
     return [
       TOOL_SCHEMAS.self_modify_request,
+      TOOL_SCHEMAS.search_knowledge,
       ...Object.values(TOOL_SCHEMAS).filter(
-        t => t.name !== 'self_modify_request' && installedToolIds.has(t.name)
+        t => !alwaysAvailable.includes(t.name) && installedToolIds.has(t.name)
       ),
     ];
   })();

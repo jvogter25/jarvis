@@ -70,6 +70,12 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['GITHUB_TOKEN'],
   },
+  {
+    id: 'search_knowledge',
+    name: 'Search Knowledge Base',
+    description: 'Search training material Jake has fed Jarvis by domain',
+    installed: true,
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {
