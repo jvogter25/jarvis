@@ -358,13 +358,14 @@ export async function handleMessage(msg: DiscordMessage) {
     maybeCondenseChannel(msg.channelId).catch(() => {}); // async, don't await
 
     console.log('Routing to agent...');
+    const sendableChannel = msg.channel; // already narrowed by isSendable guard above
     const onStepComplete = async (
       step: { agentId: string; role: string; handoffContext: string },
       _output: string,
       stepIndex: number,
       totalSteps: number
     ) => {
-      await msg.channel.send(`*Step ${stepIndex + 1}/${totalSteps} (${step.role}) complete...*`);
+      await sendableChannel.send(`*Step ${stepIndex + 1}/${totalSteps} (${step.role}) complete...*`);
     };
     const agentResponse = await routeToAgent(msg.content, onStepComplete);
 

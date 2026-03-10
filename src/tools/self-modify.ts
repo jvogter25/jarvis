@@ -65,12 +65,12 @@ export async function requestSelfModify(intent: string): Promise<SelfModifyResul
     let message: string;
     if (plan.isCoreChange) {
       message =
-        `This requires editing core files. Opus reviewed it — ${plan.reviewNotes}.\n\n` +
+        `This requires editing core files. Claude Code reviewed it — ${plan.reviewNotes}.\n\n` +
         `Files: ${fileList}${pkgNote}.${envNote}\n\n` +
         `Say **ship it** and I'll open a PR — Railway redeploys on merge.`;
     } else {
       message =
-        `I'll create ${fileList}${pkgNote}. Opus reviewed it — ${plan.reviewNotes}.${envNote}\n\n` +
+        `I'll create ${fileList}${pkgNote}. Claude Code reviewed it — ${plan.reviewNotes}.${envNote}\n\n` +
         `Want me to ship it? (yes/no)`;
     }
 
