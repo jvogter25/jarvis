@@ -8,6 +8,7 @@ import { postMorningBriefing, postProjectMorningBriefings, postProjectOvernightL
 import { runProductPulse } from './overnight/product-pulse.js';
 import { runToolDiscovery } from './overnight/tool-discovery.js';
 import { runInboxMonitor } from './overnight/inbox-monitor.js';
+import { processQueue } from './tools/engineering-queue.js';
 
 let isShuttingDown = false;
 export function getIsShuttingDown(): boolean { return isShuttingDown; }
@@ -54,6 +55,16 @@ async function main() {
   cron.schedule('0 */6 * * *', () => {
     runResearchLoop(discord).catch(console.error);
   });
+
+  // Engineering queue processor: 1am (runs before overnight training)
+  cron.schedule('0 1 * * *', async () => {
+    console.log('[queue] Running overnight engineering queue...');
+    const engineeringChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_ENGINEERING!).catch(() => null);
+    if (!engineeringChannel?.isTextBased()) return;
+    await processQueue(async (msg) => {
+      await (engineeringChannel as any).send(msg);
+    });
+  }, { timezone: 'America/Los_Angeles' });
 
   // Overnight training: 2am
   cron.schedule('0 2 * * *', () => {

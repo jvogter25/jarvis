@@ -370,3 +370,44 @@ export async function getMessagesForSummary(channelId: string, excludeRecentCoun
   if (error) throw error;
   return data ?? [];
 }
+
+// ─── Engineering Queue ────────────────────────────────────────────────────────
+
+export type QueueStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface QueueItem {
+  id: string;
+  intent: string;
+  status: QueueStatus;
+  result?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function addToQueue(intent: string): Promise<QueueItem> {
+  const { data, error } = await supabase
+    .from('engineering_queue')
+    .insert({ intent, status: 'pending' })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as QueueItem;
+}
+
+export async function getPendingQueueItems(): Promise<QueueItem[]> {
+  const { data, error } = await supabase
+    .from('engineering_queue')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as QueueItem[];
+}
+
+export async function updateQueueItem(id: string, updates: Partial<Pick<QueueItem, 'status' | 'result'>>): Promise<void> {
+  const { error } = await supabase
+    .from('engineering_queue')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
