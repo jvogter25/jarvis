@@ -59,7 +59,7 @@ If no npm package is needed, omit "npmPackage". If no env var is needed, omit "e
     'You are a TypeScript expert building production tools for an AI orchestrator.',
     [],
     writePrompt,
-    { model: 'opus', noTools: true, maxTokens: 32000 }
+    { model: 'sonnet', noTools: true, maxTokens: 64000 }
   );
 
   let generated: {
