@@ -29,10 +29,7 @@ export interface SelfModifyResult {
 }
 
 async function generateAndReviewCode(intent: string): Promise<SelfModifyPlan> {
-  // Step 1: Opus writes the code
-  const writePrompt = `You are a TypeScript/Node.js expert writing production code for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
-
-Jarvis repo structure:
+  const REPO_CONTEXT = `Jarvis repo structure:
 - src/brain.ts — Claude API loop, tool schemas and executors
 - src/discord/handlers.ts — Discord message routing and approval flows
 - src/tools/ — individual tool files (shell.ts, browser.ts, search.ts, builder.ts, slack.ts, self-modify.ts, etc.)
@@ -42,39 +39,89 @@ Jarvis repo structure:
 - src/index.ts — main entry, cron schedule
 - src/tools/registry.ts — tool definitions list
 
-CRITICAL: All local imports must use .js extensions (ESM). Use process.env.X for all secrets. No hardcoded values.
+CRITICAL: All local imports must use .js extensions (ESM). Use process.env.X for all secrets. No hardcoded values.`;
+
+  // Step 1: Generate a manifest — paths + plans, no content (keeps response small)
+  const manifestPrompt = `You are a TypeScript/Node.js expert planning production code for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
+
+${REPO_CONTEXT}
 
 Task: ${intent}
 
-Write all necessary TypeScript files to implement this. Return JSON only, no markdown:
+Plan all files you need to create or modify. Return a manifest with paths and a brief plan per file. Do NOT write file content yet.
+
+Return JSON only, no markdown:
 {
-  "files": [{"path": "src/tools/resend.ts", "content": "...complete file content..."}],
+  "files": [{"path": "src/tools/resend.ts", "plan": "Wraps the Resend API. Exports sendEmail(to, subject, body). Uses process.env.RESEND_API_KEY."}],
   "npmPackage": "resend",
   "envVarName": "RESEND_API_KEY",
-  "summary": "plain-English 1-sentence summary of what was built"
+  "summary": "plain-English 1-sentence summary of what will be built"
 }
 If no npm package is needed, omit "npmPackage". If no env var is needed, omit "envVarName".`;
 
-  const writeResult = await think(
-    'You are a TypeScript expert building production tools for an AI orchestrator.',
+  const manifestResult = await think(
+    'You are a TypeScript expert planning production tools for an AI orchestrator.',
     [],
-    writePrompt,
-    { model: 'sonnet', noTools: true, maxTokens: 64000 }
+    manifestPrompt,
+    { model: 'sonnet', noTools: true }
   );
 
-  let generated: {
-    files: Array<{ path: string; content: string }>;
+  let manifest: {
+    files: Array<{ path: string; plan: string }>;
     npmPackage?: string;
     envVarName?: string;
     summary: string;
   };
   try {
-    generated = JSON.parse(writeResult.text);
+    manifest = JSON.parse(manifestResult.text);
   } catch {
-    throw new Error(`Opus failed to return valid JSON. Raw: ${writeResult.text.slice(0, 200)}`);
+    throw new Error(`Manifest generation failed. Raw: ${manifestResult.text.slice(0, 300)}`);
   }
 
-  // Step 2: Opus reviews the generated code
+  console.log(`[self-modify] Manifest: ${manifest.files.length} file(s) planned`);
+
+  // Step 2: Generate each file's content in a separate call (no truncation risk)
+  const generatedFiles: Array<{ path: string; content: string }> = [];
+
+  for (const fileSpec of manifest.files) {
+    console.log(`[self-modify] Generating: ${fileSpec.path}`);
+
+    const contentPrompt = `You are a TypeScript/Node.js expert writing a production file for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
+
+${REPO_CONTEXT}
+
+Overall task: ${intent}
+
+Write the complete content for this specific file:
+Path: ${fileSpec.path}
+Plan: ${fileSpec.plan}
+
+Return ONLY the complete file content — raw TypeScript/JavaScript, no JSON wrapper, no markdown fences, no explanation. Just the code.`;
+
+    const contentResult = await think(
+      'You are a TypeScript expert writing production code for an AI orchestrator. Return only the file content, no explanations.',
+      [],
+      contentPrompt,
+      { model: 'sonnet', noTools: true, maxTokens: 16000 }
+    );
+
+    // Strip any accidental markdown fences
+    const content = contentResult.text
+      .replace(/^```(?:typescript|javascript|ts|js)?\n/m, '')
+      .replace(/\n```$/m, '')
+      .trim();
+
+    generatedFiles.push({ path: fileSpec.path, content });
+  }
+
+  const generated = {
+    files: generatedFiles,
+    npmPackage: manifest.npmPackage,
+    envVarName: manifest.envVarName,
+    summary: manifest.summary,
+  };
+
+  // Step 3: Opus reviews the generated code
   const fileContents = generated.files
     .map(f => `// ${f.path}\n${f.content}`)
     .join('\n\n---\n\n');
