@@ -1,5 +1,4 @@
 import { Sandbox } from 'e2b';
-import { think } from '../brain.js';
 import { buildClaudeCodeInstructions } from './claude-code-instructions.js';
 
 const SANDBOX_LIFETIME_MS = 60 * 60 * 1000;  // E2B hard cap: 1 hour max
@@ -67,7 +66,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
     const claudeResult = await sandbox.commands.run(
       `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
       {
-        timeoutMs: 0,  // no client-side timeout — sandbox lifetime (1hr) is the hard boundary
+        // No timeoutMs — omitting lets the sandbox lifetime (1hr) be the hard boundary
         envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! }
       }
     );
@@ -122,6 +121,8 @@ async function setupSandbox(fromBranch = 'main'): Promise<Sandbox> {
   const setup = await sandbox.commands.run(
     [
       `git clone --branch ${fromBranch} https://x-access-token:${token}@github.com/${OWNER}/jarvis.git /home/user/jarvis`,
+      'git config --global user.email "jarvis@jarvis.local"',
+      'git config --global user.name "Jarvis"',
       'cd /home/user/jarvis && npm install',
       'npm install -g @anthropic-ai/claude-code',
     ].join(' && '),
