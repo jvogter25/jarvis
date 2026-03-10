@@ -49,6 +49,12 @@ interface PendingPreviewEntry {
 
 const pendingPreviewApproval = new Map<string, PendingPreviewEntry>();
 
+const pendingEmailApproval = new Map<string, {
+  to: string;
+  subject: string;
+  body: string;
+}>();
+
 function isShipApproval(text: string, slug?: string): boolean {
   const lower = text.toLowerCase().trim();
   const exactPhrases = ['ship it', 'go live', 'approve', 'push it', 'launch it'];
@@ -255,6 +261,28 @@ export async function handleMessage(msg: DiscordMessage) {
     // Conversational — fall through with pending preserved
   }
 
+  // Check if we're waiting for email send approval
+  const pendingEmail = pendingEmailApproval.get(msg.channelId);
+  if (pendingEmail) {
+    if (msg.content.toLowerCase().trim() === 'send it' || isShipApproval(msg.content)) {
+      pendingEmailApproval.delete(msg.channelId);
+      await msg.channel.send(`Sending email to **${pendingEmail.to}**...`);
+      try {
+        const { sendEmail } = await import('../tools/gmail.js');
+        await sendEmail(pendingEmail.to, pendingEmail.subject, pendingEmail.body);
+        await msg.channel.send(`Email sent to **${pendingEmail.to}**.`);
+      } catch (err) {
+        await msg.channel.send(`Failed to send: ${(err as Error).message}`);
+      }
+      return;
+    } else if (isNegative(msg.content)) {
+      pendingEmailApproval.delete(msg.channelId);
+      await msg.channel.send(`Email cancelled. Let me know if you want to revise it.`);
+      return;
+    }
+    // Conversational reply — fall through with pending preserved so Jake can edit the draft
+  }
+
   // Check if we're waiting for staging approval
   const pendingStaging = pendingStagingApproval.get(msg.channelId);
   if (pendingStaging) {
@@ -351,6 +379,16 @@ export async function handleMessage(msg: DiscordMessage) {
       }
       if (toolResult.previewResult) {
         pendingPreviewApproval.set(msg.channelId, toolResult.previewResult);
+      }
+      if (toolResult.emailDraftResult) {
+        const draft = toolResult.emailDraftResult;
+        pendingEmailApproval.set(msg.channelId, draft);
+        const draftMsg =
+          `📧 Draft ready — send to **${draft.to}**?\n\n` +
+          `**Subject:** ${draft.subject}\n\n` +
+          `${draft.body}\n\n` +
+          `Say **"send it"** to send, or tell me what to change.`;
+        await msg.channel.send(draftMsg);
       }
     }
 
