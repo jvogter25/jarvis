@@ -283,3 +283,16 @@ export async function updateProjectConfig(slug: string, updates: Partial<Pick<Pr
     .eq('slug', slug);
   if (error) throw error;
 }
+
+export async function saveShutdownState(state: Record<string, unknown>): Promise<void> {
+  await supabase.from('shutdown_state').upsert({
+    id: 'singleton',
+    state,
+    saved_at: new Date().toISOString(),
+  }, { onConflict: 'id' });
+}
+
+export async function loadShutdownState(): Promise<Record<string, unknown> | null> {
+  const { data } = await supabase.from('shutdown_state').select('state').eq('id', 'singleton').single();
+  return data?.state ?? null;
+}

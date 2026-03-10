@@ -9,6 +9,27 @@ import { runProductPulse } from './overnight/product-pulse.js';
 import { runToolDiscovery } from './overnight/tool-discovery.js';
 import { runInboxMonitor } from './overnight/inbox-monitor.js';
 
+let isShuttingDown = false;
+export function getIsShuttingDown(): boolean { return isShuttingDown; }
+
+async function shutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[${signal}] Graceful shutdown — saving state...`);
+  await new Promise(resolve => setTimeout(resolve, 5000)); // brief grace for in-flight
+  try {
+    const { getPendingState } = await import('./discord/handlers.js');
+    const { saveShutdownState } = await import('./memory/supabase.js');
+    await saveShutdownState({ pendingApprovals: getPendingState(), savedAt: new Date().toISOString() });
+    console.log('[shutdown] State saved.');
+  } catch (err) {
+    console.error('[shutdown] Failed to save state:', err);
+  }
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 async function main() {
   console.log('Jarvis starting...');
   try { console.log('APP contents:', fs.readdirSync('/app').join(', ')); } catch {}
@@ -16,6 +37,18 @@ async function main() {
 
   const discord = createDiscordClient();
   await discord.login(process.env.DISCORD_TOKEN);
+
+  try {
+    const { loadShutdownState } = await import('./memory/supabase.js');
+    const { restorePendingState } = await import('./discord/handlers.js');
+    const saved = await loadShutdownState();
+    if (saved?.pendingApprovals) {
+      restorePendingState(saved.pendingApprovals as any);
+      console.log('[startup] Restored pending approvals from Supabase.');
+    }
+  } catch (err) {
+    console.error('[startup] Could not restore state:', err);
+  }
 
   // Research loop: every 6 hours
   cron.schedule('0 */6 * * *', () => {

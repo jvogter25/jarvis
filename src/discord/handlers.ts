@@ -193,8 +193,27 @@ export async function handleTrainingMessage(msg: DiscordMessage) {
   }
 }
 
+export function getPendingState() {
+  return {
+    stagingApprovals: Object.fromEntries(pendingStagingApproval),
+    prApprovals: Object.fromEntries(pendingPRApproval),
+    emailApprovals: Object.fromEntries(pendingEmailApproval),
+  };
+}
+
+export function restorePendingState(state: ReturnType<typeof getPendingState>): void {
+  for (const [k, v] of Object.entries(state.stagingApprovals ?? {})) pendingStagingApproval.set(k, v as any);
+  for (const [k, v] of Object.entries(state.prApprovals ?? {})) pendingPRApproval.set(k, v as any);
+  for (const [k, v] of Object.entries(state.emailApprovals ?? {})) pendingEmailApproval.set(k, v as any);
+}
+
 export async function handleMessage(msg: DiscordMessage) {
   if (msg.author.bot) return;
+  const { getIsShuttingDown } = await import('../index.js');
+  if (getIsShuttingDown()) {
+    await msg.reply('Restarting — please resend in a moment.');
+    return;
+  }
   let isGlobalJarvis = msg.channelId === CHANNELS.JARVIS;
   let projectChannelConfig: ProjectConfig | null = null;
 
