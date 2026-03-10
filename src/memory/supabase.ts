@@ -285,11 +285,12 @@ export async function updateProjectConfig(slug: string, updates: Partial<Pick<Pr
 }
 
 export async function saveShutdownState(state: Record<string, unknown>): Promise<void> {
-  await supabase.from('shutdown_state').upsert({
+  const { error } = await supabase.from('shutdown_state').upsert({
     id: 'singleton',
     state,
     saved_at: new Date().toISOString(),
   }, { onConflict: 'id' });
+  if (error) throw error;
 }
 
 export async function loadShutdownState(): Promise<Record<string, unknown> | null> {
