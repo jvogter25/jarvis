@@ -161,6 +161,26 @@ async function runSingleSubtask(
       }
     }, WATCHDOG_TRIGGER_MS);
 
+    // Preflight: verify claude CLI is installed and API key works
+    console.log('[claude-code] Running preflight check...');
+    const preflight = await sandbox.commands.run(
+      'claude --version && echo "PREFLIGHT_OK"',
+      {
+        timeoutMs: 30_000,
+        envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
+      }
+    );
+    const preflightOut = (preflight.stdout ?? '') + (preflight.stderr ?? '');
+    console.log('[claude-code] Preflight result (exit', preflight.exitCode, '):', preflightOut.slice(0, 200));
+    await notify?.(`🔍 Preflight: exit=${preflight.exitCode} — ${preflightOut.slice(0, 300)}`).catch(() => {});
+    if (!preflightOut.includes('PREFLIGHT_OK')) {
+      throw new Error(`Claude Code preflight failed (exit ${preflight.exitCode}): ${preflightOut.slice(0, 300)}`);
+    }
+
+    // Log TASK.md size so we can detect if it's too large
+    const taskSize = await sandbox.commands.run('wc -c /home/user/TASK.md', { timeoutMs: 5_000 });
+    console.log('[claude-code] TASK.md size:', taskSize.stdout?.trim());
+
     // Run Claude Code CLI with stdout/stderr streaming
     console.log('[claude-code] Launching Claude Code agent...');
     const claudeResult = await sandbox.commands.run(
