@@ -2,8 +2,8 @@ import { Sandbox } from 'e2b';
 import { think } from '../brain.js';
 import { buildClaudeCodeInstructions } from './claude-code-instructions.js';
 
-const SESSION_TIMEOUT_MS = 3 * 60 * 60 * 1000;  // 3 hours
-const WATCHDOG_TRIGGER_MS = 2.5 * 60 * 60 * 1000; // check at T+2.5hrs
+const SANDBOX_LIFETIME_MS = 60 * 60 * 1000;  // E2B hard cap: 1 hour max
+const WATCHDOG_TRIGGER_MS = 45 * 60 * 1000;  // checkpoint at T+45min (before E2B kills sandbox)
 
 // Global registry so emergency kill switch can terminate any active sandbox
 const activeSandboxes = new Set<InstanceType<typeof Sandbox>>();
@@ -41,42 +41,22 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
     const instructions = buildClaudeCodeInstructions(intent, OWNER, REPO);
     await sandbox.files.write('/home/user/TASK.md', instructions);
 
-    // Watchdog: at T+50min, estimate remaining work and decide extend vs checkpoint
+    // Watchdog: at T+45min, checkpoint partial work before E2B's 1hr sandbox limit kills it
     watchdogTimer = setTimeout(async () => {
       if (!sandbox) return;
       try {
-        const status = await sandbox.commands.run(
-          `cd ${REPO_PATH} && git status --short && echo "---" && git log --oneline -5`,
-          { timeoutMs: 15_000 }
+        checkpointBranch = `claude-code/checkpoint-${Date.now()}`;
+        const token = process.env.GITHUB_TOKEN!;
+        await sandbox.commands.run(
+          [
+            `cd ${REPO_PATH}`,
+            'git add -A',
+            'git commit -m "checkpoint: partial work — session handoff" || true',
+            `git push https://x-access-token:${token}@github.com/${OWNER}/${REPO}.git HEAD:${checkpointBranch}`,
+          ].join(' && '),
+          { timeoutMs: 60_000 }
         );
-        const estimate = await think(
-          'You are estimating remaining work on a coding task.',
-          [],
-          `Git status:\n${status.stdout}\n\nOriginal intent: ${intent}\n\nBased on what has been committed vs what the intent requires, estimate how many more minutes of coding work remain. Reply with just a number.`,
-          { model: 'opus', noTools: true }
-        );
-        const minutesLeft = parseInt(estimate.text.trim(), 10) || 20;
-        console.log(`[claude-code] Watchdog: ~${minutesLeft} min remaining`);
-
-        if (minutesLeft < 10) {
-          // Extend session
-          await (sandbox as any).setTimeout(15 * 60 * 1000);
-          console.log('[claude-code] Session extended by 15 min');
-        } else {
-          // Checkpoint: commit partial work to a temp branch
-          checkpointBranch = `claude-code/checkpoint-${Date.now()}`;
-          const token = process.env.GITHUB_TOKEN!;
-          await sandbox.commands.run(
-            [
-              `cd ${REPO_PATH}`,
-              'git add -A',
-              'git commit -m "checkpoint: partial work — session handoff" || true',
-              `git push https://${token}@github.com/${OWNER}/${REPO}.git HEAD:${checkpointBranch}`,
-            ].join(' && '),
-            { timeoutMs: 60_000 }
-          );
-          console.log(`[claude-code] Checkpoint saved to ${checkpointBranch}`);
-        }
+        console.log(`[claude-code] Checkpoint saved to ${checkpointBranch}`);
       } catch (err) {
         console.error('[claude-code] Watchdog failed:', err);
       }
@@ -87,7 +67,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
     const claudeResult = await sandbox.commands.run(
       `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
       {
-        timeoutMs: SESSION_TIMEOUT_MS,
+        timeoutMs: 0,  // no client-side timeout — sandbox lifetime (1hr) is the hard boundary
         envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! }
       }
     );
@@ -132,7 +112,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
 async function setupSandbox(fromBranch = 'main'): Promise<Sandbox> {
   const sandbox = await Sandbox.create({
     apiKey: process.env.E2B_API_KEY,
-    timeoutMs: SESSION_TIMEOUT_MS,
+    timeoutMs: SANDBOX_LIFETIME_MS,
   });
 
   const OWNER = process.env.GITHUB_OWNER!;
