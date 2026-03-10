@@ -126,9 +126,7 @@ async function setupSandbox(fromBranch = 'main'): Promise<Sandbox> {
   console.log(`[claude-code] Setting up sandbox, cloning from ${fromBranch}...`);
   const setup = await sandbox.commands.run(
     [
-      `git config --global credential.helper store`,
-      `echo "https://${token}@github.com" > ~/.git-credentials`,
-      `git clone --branch ${fromBranch} https://github.com/${OWNER}/jarvis.git /home/user/jarvis`,
+      `git clone --branch ${fromBranch} https://x-access-token:${token}@github.com/${OWNER}/jarvis.git /home/user/jarvis`,
       'cd /home/user/jarvis && npm install',
       'npm install -g @anthropic-ai/claude-code',
     ].join(' && '),
