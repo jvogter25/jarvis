@@ -20,6 +20,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
 
   let sandbox: Sandbox | null = null;
   let checkpointBranch: string | undefined;
+  let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     sandbox = await setupSandbox();
@@ -27,9 +28,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
     await sandbox.files.write('/home/user/TASK.md', instructions);
 
     // Watchdog: at T+50min, estimate remaining work and decide extend vs checkpoint
-    let watchdogFired = false;
-    const watchdogTimer = setTimeout(async () => {
-      watchdogFired = true;
+    watchdogTimer = setTimeout(async () => {
       if (!sandbox) return;
       try {
         const status = await sandbox.commands.run(
@@ -71,11 +70,16 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
 
     // Run Claude Code CLI
     console.log('[claude-code] Launching Claude Code agent...');
-    await sandbox.commands.run(
-      `cd ${REPO_PATH} && ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY} claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
-      { timeoutMs: SESSION_TIMEOUT_MS }
+    const claudeResult = await sandbox.commands.run(
+      `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
+      {
+        timeoutMs: SESSION_TIMEOUT_MS,
+        envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! }
+      }
     );
-    clearTimeout(watchdogTimer);
+    if (claudeResult.exitCode !== 0) {
+      throw new Error(`Claude Code exited with code ${claudeResult.exitCode}: ${claudeResult.stderr?.slice(0, 500)}`);
+    }
 
     // Extract modified files
     const files = await extractModifiedFiles(sandbox, REPO_PATH);
@@ -103,6 +107,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
       checkpointBranch,
     };
   } finally {
+    clearTimeout(watchdogTimer);
     if (sandbox) {
       await sandbox.kill().catch(() => {});
     }
@@ -121,7 +126,9 @@ async function setupSandbox(fromBranch = 'main'): Promise<Sandbox> {
   console.log(`[claude-code] Setting up sandbox, cloning from ${fromBranch}...`);
   const setup = await sandbox.commands.run(
     [
-      `git clone --branch ${fromBranch} https://${token}@github.com/${OWNER}/jarvis.git /home/user/jarvis`,
+      `git config --global credential.helper store`,
+      `echo "https://${token}@github.com" > ~/.git-credentials`,
+      `git clone --branch ${fromBranch} https://github.com/${OWNER}/jarvis.git /home/user/jarvis`,
       'cd /home/user/jarvis && npm install',
       'npm install -g @anthropic-ai/claude-code',
     ].join(' && '),
@@ -140,7 +147,7 @@ async function extractModifiedFiles(
   repoPath: string
 ): Promise<Array<{ path: string; content: string }>> {
   const result = await sandbox.commands.run(
-    `cd ${repoPath} && git diff --name-only HEAD`,
+    `cd ${repoPath} && { git diff --name-only origin/main...HEAD; git diff --name-only; } | sort -u`,
     { timeoutMs: 15_000 }
   );
 
