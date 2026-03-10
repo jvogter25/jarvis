@@ -1,9 +1,10 @@
 import { Message as DiscordMessage, TextChannel, DMChannel, NewsChannel } from 'discord.js';
-import { getRecentMessages, saveMessage, getSystemPrompt, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
+import { getRecentMessages, saveMessage, getSystemPrompt, getChannelSummary, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
+import { maybeCondenseChannel } from '../memory/summarizer.js';
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
-import { executeSelfModifyPlan, SelfModifyPlan } from '../tools/self-modify.js';
+import { executeSelfModifyPlan, requestSelfModify, SelfModifyPlan } from '../tools/self-modify.js';
 import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
@@ -20,6 +21,25 @@ function isSendable(channel: DiscordMessage['channel']): channel is SendableChan
 function keepTyping(channel: SendableChannel): () => void {
   const interval = setInterval(() => channel.sendTyping().catch(() => {}), 8000);
   return () => clearInterval(interval);
+}
+
+async function runSelfModifyInBackground(
+  intent: string,
+  reportChannel: SendableChannel
+): Promise<void> {
+  try {
+    const result = await requestSelfModify(intent);
+    if (!result.success || !result.plan) {
+      await reportChannel.send(`Self-modify failed: ${result.message}`);
+      return;
+    }
+    // Key the pending approval by the engineering channel ID so Jake can approve there
+    const approvalKey = reportChannel.id;
+    pendingPRApproval.set(approvalKey, { plan: result.plan });
+    await reportChannel.send(result.message);
+  } catch (err) {
+    await reportChannel.send(`Self-modify error: ${(err as Error).message}`);
+  }
 }
 
 const pendingStagingApproval = new Map<string, {
@@ -193,8 +213,29 @@ export async function handleTrainingMessage(msg: DiscordMessage) {
   }
 }
 
+export function getPendingState() {
+  return {
+    stagingApprovals: Object.fromEntries(pendingStagingApproval),
+    prApprovals: Object.fromEntries(pendingPRApproval),
+    previewApprovals: Object.fromEntries(pendingPreviewApproval),
+    emailApprovals: Object.fromEntries(pendingEmailApproval),
+  };
+}
+
+export function restorePendingState(state: ReturnType<typeof getPendingState>): void {
+  for (const [k, v] of Object.entries(state.stagingApprovals ?? {})) pendingStagingApproval.set(k, v as any);
+  for (const [k, v] of Object.entries(state.prApprovals ?? {})) pendingPRApproval.set(k, v as any);
+  for (const [k, v] of Object.entries(state.previewApprovals ?? {})) pendingPreviewApproval.set(k, v as PendingPreviewEntry);
+  for (const [k, v] of Object.entries(state.emailApprovals ?? {})) pendingEmailApproval.set(k, v as any);
+}
+
 export async function handleMessage(msg: DiscordMessage) {
   if (msg.author.bot) return;
+  const { getIsShuttingDown } = await import('../index.js');
+  if (getIsShuttingDown()) {
+    await msg.reply('Restarting — please resend in a moment.');
+    return;
+  }
   let isGlobalJarvis = msg.channelId === CHANNELS.JARVIS;
   let projectChannelConfig: ProjectConfig | null = null;
 
@@ -306,6 +347,15 @@ export async function handleMessage(msg: DiscordMessage) {
     // Conversational message — fall through with staging state preserved
   }
 
+  // Engineering queue: "add to queue: X" or "queue this: X"
+  const queueMatch = msg.content.match(/^(?:add to (?:engineering )?queue|queue this)[:\s]+(.+)/i);
+  if (queueMatch) {
+    const { addToQueue } = await import('../memory/supabase.js');
+    const item = await addToQueue(queueMatch[1].trim());
+    await msg.channel.send(`Added to engineering queue. I'll build it tonight.\n> ${item.intent.slice(0, 100)}`);
+    return;
+  }
+
   // Overnight mode deactivation
   const lower = msg.content.toLowerCase().trim();
   if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
@@ -326,6 +376,27 @@ export async function handleMessage(msg: DiscordMessage) {
     return;
   }
 
+  // Self-modify fast path: detect coding task requests and fire background immediately
+  // so Jarvis stays responsive while Claude Code runs (10-15 min).
+  const explicitSelfModify = /\b(?:add .* integration|add .* tool|install .* package|change .* behavior|implement .* feature|self.?modify)\b/i.test(msg.content);
+  if (explicitSelfModify && isGlobalJarvis) {
+    const { getDiscordClient } = await import('./client.js');
+    const discord = getDiscordClient();
+    const engChannelRaw = discord
+      ? await discord.channels.fetch(CHANNELS.ENGINEERING).catch(() => null)
+      : null;
+    if (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel'])) {
+      const engChannel = engChannelRaw as SendableChannel;
+      await msg.channel.send("On it — I'll post the PR to #engineering when Claude Code finishes (usually 10-15 min).");
+      await saveMessage(msg.channelId, 'user', msg.content);
+      runSelfModifyInBackground(msg.content, engChannel).catch(err =>
+        console.error('[self-modify-bg] Failed:', err)
+      );
+      return;
+    }
+    // Fall through to normal brain routing if engineering channel not available
+  }
+
   await msg.channel.sendTyping();
   const stopTyping = keepTyping(msg.channel);
 
@@ -333,9 +404,19 @@ export async function handleMessage(msg: DiscordMessage) {
     console.log('Fetching history...');
     const history = await getRecentMessages(msg.channelId);
     await saveMessage(msg.channelId, 'user', msg.content);
+    maybeCondenseChannel(msg.channelId).catch(() => {}); // async, don't await
 
     console.log('Routing to agent...');
-    const agentResponse = await routeToAgent(msg.content);
+    const sendableChannel = msg.channel; // already narrowed by isSendable guard above
+    const onStepComplete = async (
+      step: { agentId: string; role: string; handoffContext: string },
+      _output: string,
+      stepIndex: number,
+      totalSteps: number
+    ) => {
+      await sendableChannel.send(`*Step ${stepIndex + 1}/${totalSteps} (${step.role}) complete...*`);
+    };
+    const agentResponse = await routeToAgent(msg.content, onStepComplete);
 
     if (agentResponse) {
       console.log('Agent responded');
@@ -349,7 +430,11 @@ export async function handleMessage(msg: DiscordMessage) {
 
     console.log('Using brain...');
     const systemPrompt = projectChannelConfig?.system_prompt ?? await getSystemPrompt();
-    const result = await think(systemPrompt, history, msg.content);
+    const channelSummary = await getChannelSummary(msg.channelId);
+    const effectiveSystemPrompt = channelSummary
+      ? `${systemPrompt}\n\n---\nCONVERSATION HISTORY SUMMARY (older messages):\n${channelSummary}`
+      : systemPrompt;
+    const result = await think(effectiveSystemPrompt, history, msg.content);
     stopTyping();
 
     await saveMessage(msg.channelId, 'assistant', result.text);
@@ -374,8 +459,27 @@ export async function handleMessage(msg: DiscordMessage) {
         await notifySlackEngineering(`🔧 Staging ready: *${build.slug}*\n${build.stagingUrl}\nApprove in Discord to ship.`);
       }
       if (toolResult.selfModifyProposal) {
-        pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
-        await msg.channel.send(toolResult.selfModifyProposal.message);
+        // self_modify is non-blocking: we already fired background in the brain tool result,
+        // but here the plan was already generated synchronously. Post the approval prompt
+        // to engineering channel and store keyed by engineering channel ID.
+        const { getDiscordClient } = await import('./client.js');
+        const discord = getDiscordClient();
+        if (discord) {
+          const engChannelRaw = await discord.channels.fetch(CHANNELS.ENGINEERING).catch(() => null);
+          if (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel'])) {
+            const engChannel = engChannelRaw as SendableChannel;
+            pendingPRApproval.set(engChannel.id, { plan: toolResult.selfModifyProposal.plan });
+            await engChannel.send(toolResult.selfModifyProposal.message);
+            await msg.channel.send("On it — I'll post the PR to #engineering when Claude Code finishes (usually 10-15 min).");
+          } else {
+            // Fallback: post to current channel if engineering channel unavailable
+            pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
+            await msg.channel.send(toolResult.selfModifyProposal.message);
+          }
+        } else {
+          pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
+          await msg.channel.send(toolResult.selfModifyProposal.message);
+        }
       }
       if (toolResult.previewResult) {
         pendingPreviewApproval.set(msg.channelId, toolResult.previewResult);

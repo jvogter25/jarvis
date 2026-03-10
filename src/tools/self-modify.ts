@@ -1,5 +1,5 @@
 import { upsertFile, createPR, createBranch } from '../github/client.js';
-import { think } from '../brain.js';
+import { runClaudeCodeAgent } from './claude-code-agent.js';
 
 // Files that must go through a PR — never direct push to main
 const CORE_FILES = new Set([
@@ -29,170 +29,19 @@ export interface SelfModifyResult {
 }
 
 async function generateAndReviewCode(intent: string): Promise<SelfModifyPlan> {
-  const REPO_CONTEXT = `Jarvis repo structure:
-- src/brain.ts — Claude API loop, tool schemas and executors
-- src/discord/handlers.ts — Discord message routing and approval flows
-- src/tools/ — individual tool files (shell.ts, browser.ts, search.ts, builder.ts, slack.ts, self-modify.ts, etc.)
-- src/memory/supabase.ts — Supabase queries
-- src/overnight/ — cron tasks (trainer.ts, briefing.ts, product-pulse.ts, tool-discovery.ts)
-- src/github/client.ts — GitHub API helpers
-- src/index.ts — main entry, cron schedule
-- src/tools/registry.ts — tool definitions list
+  const result = await runClaudeCodeAgent(intent);
 
-CRITICAL: All local imports must use .js extensions (ESM). Use process.env.X for all secrets. No hardcoded values.`;
-
-  // Step 1: Get file list as plain text — no JSON, no parse errors, impossible to truncate
-  const manifestPrompt = `You are a TypeScript/Node.js expert planning production code for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
-
-${REPO_CONTEXT}
-
-Task: ${intent}
-
-List every file you need to create or modify. Plain text only — one file path per line, nothing else.
-If an npm package is needed, add a line: NPM: <package-name>
-If an env var is needed, add a line: ENV: <VAR_NAME>
-Add one line: SUMMARY: <one sentence of what this builds>
-
-Example output:
-src/tools/resend.ts
-src/brain.ts
-NPM: resend
-ENV: RESEND_API_KEY
-SUMMARY: Adds email sending via Resend API with draft approval gate`;
-
-  const manifestResult = await think(
-    'You are a TypeScript expert planning production tools for an AI orchestrator. Return only the file list as specified — plain text, no JSON, no markdown.',
-    [],
-    manifestPrompt,
-    { model: 'sonnet', noTools: true }
-  );
-
-  console.log(`[self-modify] Raw manifest (${manifestResult.text.length} chars):\n${manifestResult.text}`);
-
-  // Parse plain-text manifest
-  const lines = manifestResult.text.split('\n').map(l => l.trim()).filter(Boolean);
-  const filePaths = lines.filter(l => !l.startsWith('NPM:') && !l.startsWith('ENV:') && !l.startsWith('SUMMARY:') && l.includes('/'));
-  const npmLine = lines.find(l => l.startsWith('NPM:'));
-  const envLine = lines.find(l => l.startsWith('ENV:'));
-  const summaryLine = lines.find(l => l.startsWith('SUMMARY:'));
-
-  if (filePaths.length === 0) {
-    throw new Error(`Manifest returned no file paths. Raw: ${manifestResult.text.slice(0, 200)}`);
+  if (!result.success || result.files.length === 0) {
+    throw new Error(result.reviewNotes);
   }
 
-  const manifest = {
-    files: filePaths,
-    npmPackage: npmLine ? npmLine.replace('NPM:', '').trim() : undefined,
-    envVarName: envLine ? envLine.replace('ENV:', '').trim() : undefined,
-    summary: summaryLine ? summaryLine.replace('SUMMARY:', '').trim() : intent,
-  };
-
-  console.log(`[self-modify] Manifest: ${manifest.files.length} file(s) planned: ${manifest.files.join(', ')}`);
-
-  // Step 2: Generate each file's content in a separate call (no truncation risk)
-  const generatedFiles: Array<{ path: string; content: string }> = [];
-
-  for (const filePath of manifest.files) {
-    console.log(`[self-modify] Generating: ${filePath}`);
-
-    const contentPrompt = `You are a TypeScript/Node.js expert writing a production file for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
-
-${REPO_CONTEXT}
-
-Overall task: ${intent}
-
-Write the complete content for this specific file: ${filePath}
-
-Return ONLY the complete file content — raw TypeScript/JavaScript, no JSON wrapper, no markdown fences, no explanation. Just the code.`;
-
-    const contentResult = await think(
-      'You are a TypeScript expert writing production code for an AI orchestrator. Return only the file content, no explanations.',
-      [],
-      contentPrompt,
-      { model: 'sonnet', noTools: true, maxTokens: 16000 }
-    );
-
-    // Strip any accidental markdown fences
-    const content = contentResult.text
-      .replace(/^```(?:typescript|javascript|ts|js)?\n/m, '')
-      .replace(/\n```$/m, '')
-      .trim();
-
-    generatedFiles.push({ path: filePath, content });
-  }
-
-  const generated = {
-    files: generatedFiles,
-    npmPackage: manifest.npmPackage,
-    envVarName: manifest.envVarName,
-    summary: manifest.summary,
-  };
-
-  // Step 3: Opus reviews the generated code
-  const fileContents = generated.files
-    .map(f => `// ${f.path}\n${f.content}`)
-    .join('\n\n---\n\n');
-
-  const reviewPrompt = `Review this TypeScript code that will be pushed to a production Railway server running an AI Discord bot.
-
-Files to review:
-${fileContents.slice(0, 15000)}
-
-Check for:
-1. TypeScript/ESM correctness (all local imports have .js extensions, proper async/await, no missing types)
-2. Security issues (no hardcoded secrets, proper process.env usage)
-3. Error handling (async functions wrapped in try/catch where appropriate)
-4. Correct integration patterns (matches the Jarvis codebase style)
-
-Return JSON only, no markdown:
-{
-  "approved": true,
-  "notes": "one sentence summary of review outcome",
-  "fixes": []
-}
-If fixes are needed, include corrected file objects in "fixes": [{"path": "...", "content": "...complete corrected content..."}]`;
-
-  const reviewResult = await think(
-    'You are a senior TypeScript engineer reviewing production code for correctness and safety.',
-    [],
-    reviewPrompt,
-    { model: 'opus', noTools: true, maxTokens: 32000 }
-  );
-
-  let review: { approved: boolean; notes: string; fixes?: Array<{ path: string; content: string }> };
-  try {
-    const cleanedReview = reviewResult.text
-      .replace(/^```(?:json)?\n/m, '')
-      .replace(/\n```$/m, '')
-      .trim();
-    review = JSON.parse(cleanedReview);
-  } catch {
-    review = { approved: true, notes: 'Review parse failed — proceeding with generated code.' };
-  }
-
-  // Log a warning if reviewer flagged issues but provided no fixes
-  if (!review.approved && (!review.fixes || review.fixes.length === 0)) {
-    console.warn('[self-modify] Opus reviewer flagged issues but provided no fixes — proceeding with generated code. Review notes:', review.notes);
-  }
-
-  // Apply fixes if reviewer found issues
-  let finalFiles = [...generated.files];
-  if (review.fixes && review.fixes.length > 0) {
-    for (const fix of review.fixes) {
-      const idx = finalFiles.findIndex(f => f.path === fix.path);
-      if (idx >= 0) finalFiles[idx] = fix;
-      else finalFiles.push(fix);
-    }
-  }
-
-  // Determine if any file is a protected core file
-  const isCoreChange = finalFiles.some(f => CORE_FILES.has(f.path));
+  const isCoreChange = result.files.some(f => CORE_FILES.has(f.path));
 
   return {
-    files: finalFiles,
-    npmPackage: generated.npmPackage,
-    envVarName: generated.envVarName,
-    reviewNotes: review.notes,
+    files: result.files,
+    npmPackage: undefined,  // Claude Code handles package.json directly
+    envVarName: undefined,
+    reviewNotes: result.reviewNotes,
     isCoreChange,
     ...(isCoreChange ? { prBranch: `self-modify/${Date.now()}` } : {}),
   };
@@ -216,12 +65,12 @@ export async function requestSelfModify(intent: string): Promise<SelfModifyResul
     let message: string;
     if (plan.isCoreChange) {
       message =
-        `This requires editing core files. Opus reviewed it — ${plan.reviewNotes}.\n\n` +
+        `This requires editing core files. Claude Code reviewed it — ${plan.reviewNotes}.\n\n` +
         `Files: ${fileList}${pkgNote}.${envNote}\n\n` +
         `Say **ship it** and I'll open a PR — Railway redeploys on merge.`;
     } else {
       message =
-        `I'll create ${fileList}${pkgNote}. Opus reviewed it — ${plan.reviewNotes}.${envNote}\n\n` +
+        `I'll create ${fileList}${pkgNote}. Claude Code reviewed it — ${plan.reviewNotes}.${envNote}\n\n` +
         `Want me to ship it? (yes/no)`;
     }
 
