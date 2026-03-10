@@ -1,5 +1,6 @@
 import { Sandbox } from 'e2b';
 import { buildClaudeCodeInstructions } from './claude-code-instructions.js';
+import { planCodingTask } from './task-planner.js';
 
 const SANDBOX_LIFETIME_MS = 60 * 60 * 1000;  // E2B hard cap: 1 hour max
 const WATCHDOG_TRIGGER_MS = 45 * 60 * 1000;  // checkpoint at T+45min (before E2B kills sandbox)
@@ -28,16 +29,76 @@ export interface ClaudeCodeResult {
 export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResult> {
   const OWNER = process.env.GITHUB_OWNER!;
   const REPO = 'jarvis';
-  const REPO_PATH = '/home/user/jarvis';
 
+  // Plan the task before spinning up any sandbox
+  console.log('[claude-code] Planning task...');
+  const subtasks = await planCodingTask(intent);
+  console.log(`[claude-code] Plan ready: ${subtasks.length} subtask(s)`);
+
+  let allFiles: Array<{ path: string; content: string }> = [];
+  let lastCheckpointBranch: string | undefined;
+  let lastTestReport: string | undefined;
+  let currentBranch = 'main';
+
+  for (const subtask of subtasks) {
+    subtask.fromBranch = currentBranch;
+
+    if (subtasks.length > 1) {
+      console.log(`[claude-code] Running subtask ${subtask.index + 1}/${subtask.total}: ${subtask.title}`);
+    }
+
+    const result = await runSingleSubtask(subtask, OWNER, REPO);
+
+    if (!result.success) {
+      return {
+        success: false,
+        files: allFiles,
+        reviewNotes: `Subtask ${subtask.index + 1} failed: ${result.reviewNotes}`,
+        checkpointBranch: result.checkpointBranch ?? lastCheckpointBranch,
+        testReport: result.testReport,
+      };
+    }
+
+    // Merge files (later subtasks may modify same files — last write wins)
+    for (const f of result.files) {
+      const existing = allFiles.findIndex(e => e.path === f.path);
+      if (existing >= 0) allFiles[existing] = f;
+      else allFiles.push(f);
+    }
+
+    if (result.checkpointBranch) lastCheckpointBranch = result.checkpointBranch;
+    if (result.testReport) lastTestReport = result.testReport;
+
+    // Next subtask clones from the branch that was just written
+    // The checkpoint branch is the output branch of this subtask
+    if (result.checkpointBranch) {
+      currentBranch = result.checkpointBranch;
+    }
+  }
+
+  return {
+    success: true,
+    files: allFiles,
+    reviewNotes: `Claude Code completed ${subtasks.length} subtask(s). ${allFiles.length} file(s) modified. TSC verified.`,
+    checkpointBranch: lastCheckpointBranch,
+    testReport: lastTestReport,
+  };
+}
+
+async function runSingleSubtask(
+  subtask: Parameters<typeof buildClaudeCodeInstructions>[0],
+  OWNER: string,
+  REPO: string,
+): Promise<ClaudeCodeResult> {
+  const REPO_PATH = '/home/user/jarvis';
   let sandbox: Sandbox | null = null;
   let checkpointBranch: string | undefined;
   let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    sandbox = await setupSandbox();
+    sandbox = await setupSandbox(subtask.fromBranch);
     activeSandboxes.add(sandbox);
-    const instructions = buildClaudeCodeInstructions(intent, OWNER, REPO);
+    const instructions = buildClaudeCodeInstructions(subtask, OWNER, REPO);
     await sandbox.files.write('/home/user/TASK.md', instructions);
 
     // Watchdog: at T+45min, checkpoint partial work before E2B's 1hr sandbox limit kills it
@@ -74,6 +135,19 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
       throw new Error(`Claude Code exited with code ${claudeResult.exitCode}: ${claudeResult.stderr?.slice(0, 500)}`);
     }
 
+    // Push output to a checkpoint branch so next subtask (or PR flow) can pick it up
+    checkpointBranch = `claude-code/output-${Date.now()}`;
+    const token = process.env.GITHUB_TOKEN!;
+    await sandbox.commands.run(
+      [
+        `cd ${REPO_PATH}`,
+        'git add -A',
+        'git commit -m "claude-code: task complete" || true',
+        `git push https://x-access-token:${token}@github.com/${OWNER}/${REPO}.git HEAD:${checkpointBranch}`,
+      ].join(' && '),
+      { timeoutMs: 60_000 }
+    ).catch(err => console.warn('[claude-code] Output push failed:', err));
+
     // Extract modified files
     const files = await extractModifiedFiles(sandbox, REPO_PATH);
 
@@ -86,13 +160,13 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
     return {
       success: true,
       files,
-      reviewNotes: `Claude Code completed 4-phase review. ${files.length} file(s) modified. TSC verified.`,
+      reviewNotes: `Claude Code completed. ${files.length} file(s) modified. TSC verified.`,
       checkpointBranch,
       testReport,
     };
 
   } catch (err) {
-    console.error('[claude-code] Agent failed:', err);
+    console.error('[claude-code] Subtask failed:', err);
     return {
       success: false,
       files: [],
