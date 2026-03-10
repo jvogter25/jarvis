@@ -7,6 +7,7 @@ import { runOvernightTraining } from './overnight/trainer.js';
 import { postMorningBriefing, postProjectMorningBriefings, postProjectOvernightLogs } from './overnight/briefing.js';
 import { runProductPulse } from './overnight/product-pulse.js';
 import { runToolDiscovery } from './overnight/tool-discovery.js';
+import { runInboxMonitor } from './overnight/inbox-monitor.js';
 
 async function main() {
   console.log('Jarvis starting...');
@@ -41,6 +42,11 @@ async function main() {
   // Weekly tool discovery: Fridays at 9am
   cron.schedule('0 9 * * 5', () => {
     runToolDiscovery(discord).catch(console.error);
+  });
+
+  // Inbox monitor: every 30 minutes
+  cron.schedule('*/30 * * * *', () => {
+    runInboxMonitor(discord).catch(console.error);
   });
 
   console.log('Jarvis online.');
