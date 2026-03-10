@@ -9,6 +9,7 @@ import { runProductPulse } from './overnight/product-pulse.js';
 import { runToolDiscovery } from './overnight/tool-discovery.js';
 import { runInboxMonitor } from './overnight/inbox-monitor.js';
 import { processQueue } from './tools/engineering-queue.js';
+import { isEmergencyLocked, restoreEmergencyLockState } from './tools/emergency.js';
 
 let isShuttingDown = false;
 export function getIsShuttingDown(): boolean { return isShuttingDown; }
@@ -51,47 +52,58 @@ async function main() {
     console.error('[startup] Could not restore state:', err);
   }
 
+  // Restore emergency lock state (persists across redeploys)
+  await restoreEmergencyLockState().catch(err =>
+    console.error('[startup] Could not restore lock state:', err)
+  );
+
+  const TZ = 'America/Los_Angeles';
+
   // Research loop: every 6 hours
   cron.schedule('0 */6 * * *', () => {
     runResearchLoop(discord).catch(console.error);
-  });
+  }, { timezone: TZ });
 
-  // Engineering queue processor: 1am (runs before overnight training)
+  // Engineering queue processor: 1am — skip if emergency locked
   cron.schedule('0 1 * * *', async () => {
+    if (isEmergencyLocked()) {
+      console.log('[queue] Skipping — emergency lock active.');
+      return;
+    }
     console.log('[queue] Running overnight engineering queue...');
     const engineeringChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_ENGINEERING!).catch(() => null);
     if (!engineeringChannel?.isTextBased()) return;
     await processQueue(async (msg) => {
       await (engineeringChannel as any).send(msg);
     });
-  }, { timezone: 'America/Los_Angeles' });
+  }, { timezone: TZ });
 
   // Overnight training: 2am
   cron.schedule('0 2 * * *', () => {
     runOvernightTraining(discord).catch(console.error);
     postProjectOvernightLogs(discord).catch(console.error);
-  });
+  }, { timezone: TZ });
 
   // Morning briefing: 7am
   cron.schedule('0 7 * * *', () => {
     postMorningBriefing(discord).catch(console.error);
     postProjectMorningBriefings(discord).catch(console.error);
-  });
+  }, { timezone: TZ });
 
   // Weekly product pulse: Mondays at 8am
   cron.schedule('0 8 * * 1', () => {
     runProductPulse(discord).catch(console.error);
-  });
+  }, { timezone: TZ });
 
   // Weekly tool discovery: Fridays at 9am
   cron.schedule('0 9 * * 5', () => {
     runToolDiscovery(discord).catch(console.error);
-  });
+  }, { timezone: TZ });
 
   // Inbox monitor: every 30 minutes
   cron.schedule('*/30 * * * *', () => {
     runInboxMonitor(discord).catch(console.error);
-  });
+  }, { timezone: TZ });
 
   console.log('Jarvis online.');
 }

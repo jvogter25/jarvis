@@ -6,6 +6,7 @@ import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModifyPlan, requestSelfModify, SelfModifyPlan } from '../tools/self-modify.js';
 import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
+import { isEmergencyLocked, activateEmergencyLock, deactivateEmergencyLock, detectKillPhrase, detectResumePhrase } from '../tools/emergency.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
@@ -248,6 +249,43 @@ export async function handleMessage(msg: DiscordMessage) {
 
   console.log(`Message received: "${msg.content.slice(0, 60)}"`);
 
+  // ── Emergency kill switch ─────────────────────────────────────────────────
+  if (detectKillPhrase(msg.content)) {
+    const pendingState = { pendingApprovals: getPendingState() };
+    const { sandboxesKilled, pendingCleared } = await activateEmergencyLock(pendingState);
+    pendingStagingApproval.clear();
+    pendingPRApproval.clear();
+    pendingPreviewApproval.clear();
+    pendingEmailApproval.clear();
+    const killedLine = sandboxesKilled > 0 ? `\nKilled: ${sandboxesKilled} active sandbox(es)` : '';
+    const clearedLine = pendingCleared.length > 0 ? `\nCleared: ${pendingCleared.join(', ')}` : '';
+    await msg.channel.send(
+      `🛑 **Emergency stop activated.**${killedLine}${clearedLine}\n\n` +
+      `I'm in **baseline mode** — overnight research, training, and inbox monitoring continue as normal.\n` +
+      `Nothing else runs until you say **"all clear"**.`
+    );
+    return;
+  }
+
+  // ── Resume from emergency lock ────────────────────────────────────────────
+  if (detectResumePhrase(msg.content) && isEmergencyLocked()) {
+    await deactivateEmergencyLock();
+    await msg.channel.send(
+      `✅ **All clear — back to full operations.**\n\n` +
+      `Anything in-flight before the stop has been cleared. Tell me what you want to pick back up.`
+    );
+    return;
+  }
+
+  // ── Block non-baseline work when locked ───────────────────────────────────
+  if (isEmergencyLocked()) {
+    const isOperationalRequest = /\b(?:add|build|install|create|implement|modify|fix|ship|deploy|queue)\b/i.test(msg.content);
+    if (isOperationalRequest) {
+      await msg.channel.send(`I'm in baseline mode right now. Say **"all clear"** to resume full operations.`);
+      return;
+    }
+  }
+
   // Check if we're waiting for self-modify approval (from self_modify_request tool)
   const pendingModify = pendingPRApproval.get(msg.channelId);
   if (pendingModify) {
@@ -379,7 +417,7 @@ export async function handleMessage(msg: DiscordMessage) {
   // Self-modify fast path: detect coding task requests and fire background immediately
   // so Jarvis stays responsive while Claude Code runs (10-15 min).
   const explicitSelfModify = /\b(?:add .* integration|add .* tool|install .* package|change .* behavior|implement .* feature|self.?modify)\b/i.test(msg.content);
-  if (explicitSelfModify && isGlobalJarvis) {
+  if (explicitSelfModify && isGlobalJarvis && !isEmergencyLocked()) {
     const { getDiscordClient } = await import('./client.js');
     const discord = getDiscordClient();
     const engChannelRaw = discord

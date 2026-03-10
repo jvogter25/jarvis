@@ -5,6 +5,19 @@ import { buildClaudeCodeInstructions } from './claude-code-instructions.js';
 const SESSION_TIMEOUT_MS = 3 * 60 * 60 * 1000;  // 3 hours
 const WATCHDOG_TRIGGER_MS = 2.5 * 60 * 60 * 1000; // check at T+2.5hrs
 
+// Global registry so emergency kill switch can terminate any active sandbox
+const activeSandboxes = new Set<InstanceType<typeof Sandbox>>();
+
+export async function killAllSandboxes(): Promise<number> {
+  const count = activeSandboxes.size;
+  for (const sandbox of activeSandboxes) {
+    await sandbox.kill().catch(() => {});
+  }
+  activeSandboxes.clear();
+  console.log(`[emergency] Killed ${count} active sandbox(es).`);
+  return count;
+}
+
 export interface ClaudeCodeResult {
   success: boolean;
   files: Array<{ path: string; content: string }>;
@@ -24,6 +37,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
 
   try {
     sandbox = await setupSandbox();
+    activeSandboxes.add(sandbox);
     const instructions = buildClaudeCodeInstructions(intent, OWNER, REPO);
     await sandbox.files.write('/home/user/TASK.md', instructions);
 
@@ -109,6 +123,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
   } finally {
     clearTimeout(watchdogTimer);
     if (sandbox) {
+      activeSandboxes.delete(sandbox);
       await sandbox.kill().catch(() => {});
     }
   }
