@@ -20,7 +20,7 @@ Decide if this task needs a CHAIN of agents working in sequence, or if a single 
 
 Rules:
 - Only chain when the task genuinely requires multiple specialist phases (e.g. research → analysis → writing)
-- Simple questions, greetings, status checks, and conversational messages should NOT chain
+- Tasks that are any of the following should NOT chain: ${SINGLE_AGENT_TASKS.join(', ')}
 - Maximum ${MAX_CHAIN_LENGTH} steps
 - Each step must use a valid agent ID from the list above
 

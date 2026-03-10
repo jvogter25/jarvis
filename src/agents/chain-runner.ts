@@ -26,7 +26,7 @@ export async function runAgentChain(
   for (let i = 0; i < plan.steps.length; i++) {
     const step = plan.steps[i];
     const agent = agentMap.get(step.agentId);
-    if (!agent) continue;
+    if (!agent) { console.warn(`[chain-runner] Agent "${step.agentId}" not found in manifest, skipping step ${i + 1}/${plan.steps.length}`); continue; }
 
     const previousWork = stepOutputs.length > 0
       ? stepOutputs.map(s => `## ${s.role}\n${s.output}`).join('\n\n')
