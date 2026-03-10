@@ -442,13 +442,13 @@ export async function think(
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
-    const response: Anthropic.Message = await client.messages.create({
+    const response: Anthropic.Message = await client.messages.stream({
       model: modelId,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages,
       ...(activeToolSchemas.length > 0 ? { tools: activeToolSchemas } : {}),
-    }) as Anthropic.Message;
+    }).finalMessage();
 
     if (response.stop_reason !== 'tool_use') {
       // Done — extract text response
