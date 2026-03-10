@@ -29,7 +29,8 @@ async function runSelfModifyInBackground(
   reportChannel: SendableChannel
 ): Promise<void> {
   try {
-    const result = await requestSelfModify(intent);
+    const notify = (msg: string) => reportChannel.send(msg).then(() => {});
+    const result = await requestSelfModify(intent, notify);
     if (!result.success || !result.plan) {
       await reportChannel.send(`Self-modify failed: ${result.message}`);
       return;

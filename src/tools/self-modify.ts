@@ -1,5 +1,5 @@
 import { upsertFile, createPR, createBranch } from '../github/client.js';
-import { runClaudeCodeAgent } from './claude-code-agent.js';
+import { runClaudeCodeAgent, NotifyFn } from './claude-code-agent.js';
 
 // Files that must go through a PR — never direct push to main
 const CORE_FILES = new Set([
@@ -28,8 +28,8 @@ export interface SelfModifyResult {
   plan?: SelfModifyPlan;
 }
 
-async function generateAndReviewCode(intent: string): Promise<SelfModifyPlan> {
-  const result = await runClaudeCodeAgent(intent);
+async function generateAndReviewCode(intent: string, notify?: NotifyFn): Promise<SelfModifyPlan> {
+  const result = await runClaudeCodeAgent(intent, notify);
 
   if (!result.success || result.files.length === 0) {
     throw new Error(result.reviewNotes);
@@ -51,10 +51,10 @@ async function generateAndReviewCode(intent: string): Promise<SelfModifyPlan> {
  * Generate code for an intent and return a proposal for Jake to approve.
  * Does NOT push anything yet — caller stores the plan and waits for approval.
  */
-export async function requestSelfModify(intent: string): Promise<SelfModifyResult> {
+export async function requestSelfModify(intent: string, notify?: NotifyFn): Promise<SelfModifyResult> {
   try {
     console.log(`[self-modify] Generating code for: ${intent}`);
-    const plan = await generateAndReviewCode(intent);
+    const plan = await generateAndReviewCode(intent, notify);
 
     const fileList = plan.files.map(f => `\`${f.path}\``).join(', ');
     const pkgNote = plan.npmPackage ? ` + add \`${plan.npmPackage}\` to package.json` : '';

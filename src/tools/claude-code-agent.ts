@@ -26,7 +26,9 @@ export interface ClaudeCodeResult {
   testReport?: string;
 }
 
-export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResult> {
+export type NotifyFn = (msg: string) => Promise<void>;
+
+export async function runClaudeCodeAgent(intent: string, notify?: NotifyFn): Promise<ClaudeCodeResult> {
   const OWNER = process.env.GITHUB_OWNER!;
   const REPO = 'jarvis';
 
@@ -47,7 +49,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
       console.log(`[claude-code] Running subtask ${subtask.index + 1}/${subtask.total}: ${subtask.title}`);
     }
 
-    const result = await runSingleSubtask(subtask, OWNER, REPO);
+    const result = await runSingleSubtask(subtask, OWNER, REPO, notify);
 
     if (!result.success) {
       return {
@@ -89,17 +91,53 @@ async function runSingleSubtask(
   subtask: Parameters<typeof buildClaudeCodeInstructions>[0],
   OWNER: string,
   REPO: string,
+  notify?: NotifyFn,
 ): Promise<ClaudeCodeResult> {
   const REPO_PATH = '/home/user/jarvis';
   let sandbox: Sandbox | null = null;
   let checkpointBranch: string | undefined;
   let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Streaming: buffer stdout and flush to Discord every 10s
+  const subtaskLabel = subtask.total > 1 ? ` (${subtask.index + 1}/${subtask.total}: ${subtask.title})` : '';
+  let outputBuffer = '';
+  let lastNotifyTime = 0;
+  let notifyTimer: ReturnType<typeof setTimeout> | undefined;
+  const startTime = Date.now();
+
+  async function flushToDiscord(force = false) {
+    if (!notify || !outputBuffer.trim()) return;
+    const now = Date.now();
+    if (!force && now - lastNotifyTime < 10_000) return;
+    lastNotifyTime = now;
+    const elapsed = Math.floor((now - startTime) / 60_000);
+    // Keep last 1800 chars to stay under Discord's 2000 limit
+    const tail = outputBuffer.length > 1800 ? '...' + outputBuffer.slice(-1800) : outputBuffer;
+    await notify(`\`\`\`\n[claude-code${subtaskLabel}] T+${elapsed}m\n${tail}\n\`\`\``).catch(() => {});
+    outputBuffer = '';
+  }
+
+  function onOutput(chunk: string) {
+    console.log('[claude-code]', chunk.trimEnd());
+    outputBuffer += chunk;
+    // Schedule a flush if one isn't already pending
+    if (!notifyTimer) {
+      notifyTimer = setTimeout(async () => {
+        notifyTimer = undefined;
+        await flushToDiscord();
+      }, 10_000);
+    }
+  }
+
   try {
     sandbox = await setupSandbox(subtask.fromBranch);
     activeSandboxes.add(sandbox);
     const instructions = buildClaudeCodeInstructions(subtask, OWNER, REPO);
     await sandbox.files.write('/home/user/TASK.md', instructions);
+
+    if (notify) {
+      await notify(`⚙️ **Claude Code starting**${subtaskLabel} — pre-loaded ${subtask.relevantFiles.length} file(s). Updates every ~10s.`).catch(() => {});
+    }
 
     // Watchdog: at T+45min, checkpoint partial work before E2B's 1hr sandbox limit kills it
     watchdogTimer = setTimeout(async () => {
@@ -117,20 +155,26 @@ async function runSingleSubtask(
           { timeoutMs: 60_000 }
         );
         console.log(`[claude-code] Checkpoint saved to ${checkpointBranch}`);
+        await notify?.(`⚠️ **T+45min checkpoint** saved to \`${checkpointBranch}\` — sandbox approaching limit.`).catch(() => {});
       } catch (err) {
         console.error('[claude-code] Watchdog failed:', err);
       }
     }, WATCHDOG_TRIGGER_MS);
 
-    // Run Claude Code CLI
+    // Run Claude Code CLI with stdout/stderr streaming
     console.log('[claude-code] Launching Claude Code agent...');
     const claudeResult = await sandbox.commands.run(
       `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
       {
         timeoutMs: 0,  // 0 = no timeout (E2B default is 60s which kills Claude Code mid-run)
-        envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! }
+        envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
+        onStdout: (data) => onOutput(data.line ?? data.toString()),
+        onStderr: (data) => onOutput(data.line ?? data.toString()),
       }
     );
+    clearTimeout(notifyTimer);
+    await flushToDiscord(true);
+
     if (claudeResult.exitCode !== 0) {
       throw new Error(`Claude Code exited with code ${claudeResult.exitCode}: ${claudeResult.stderr?.slice(0, 500)}`);
     }
