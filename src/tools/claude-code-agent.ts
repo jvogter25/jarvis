@@ -66,7 +66,7 @@ export async function runClaudeCodeAgent(intent: string): Promise<ClaudeCodeResu
     const claudeResult = await sandbox.commands.run(
       `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
       {
-        // No timeoutMs — omitting lets the sandbox lifetime (1hr) be the hard boundary
+        timeoutMs: 0,  // 0 = no timeout (E2B default is 60s which kills Claude Code mid-run)
         envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! }
       }
     );
