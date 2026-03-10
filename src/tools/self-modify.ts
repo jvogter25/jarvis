@@ -41,50 +41,59 @@ async function generateAndReviewCode(intent: string): Promise<SelfModifyPlan> {
 
 CRITICAL: All local imports must use .js extensions (ESM). Use process.env.X for all secrets. No hardcoded values.`;
 
-  // Step 1: Generate a manifest — paths + plans, no content (keeps response small)
+  // Step 1: Get file list as plain text — no JSON, no parse errors, impossible to truncate
   const manifestPrompt = `You are a TypeScript/Node.js expert planning production code for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
 
 ${REPO_CONTEXT}
 
 Task: ${intent}
 
-Plan all files you need to create or modify. Return a manifest with paths and a brief plan per file. Do NOT write file content yet.
+List every file you need to create or modify. Plain text only — one file path per line, nothing else.
+If an npm package is needed, add a line: NPM: <package-name>
+If an env var is needed, add a line: ENV: <VAR_NAME>
+Add one line: SUMMARY: <one sentence of what this builds>
 
-Return JSON only, no markdown:
-{
-  "files": [{"path": "src/tools/resend.ts", "plan": "Wraps the Resend API. Exports sendEmail(to, subject, body). Uses process.env.RESEND_API_KEY."}],
-  "npmPackage": "resend",
-  "envVarName": "RESEND_API_KEY",
-  "summary": "plain-English 1-sentence summary of what will be built"
-}
-If no npm package is needed, omit "npmPackage". If no env var is needed, omit "envVarName".`;
+Example output:
+src/tools/resend.ts
+src/brain.ts
+NPM: resend
+ENV: RESEND_API_KEY
+SUMMARY: Adds email sending via Resend API with draft approval gate`;
 
   const manifestResult = await think(
-    'You are a TypeScript expert planning production tools for an AI orchestrator.',
+    'You are a TypeScript expert planning production tools for an AI orchestrator. Return only the file list as specified — plain text, no JSON, no markdown.',
     [],
     manifestPrompt,
     { model: 'sonnet', noTools: true }
   );
 
-  let manifest: {
-    files: Array<{ path: string; plan: string }>;
-    npmPackage?: string;
-    envVarName?: string;
-    summary: string;
-  };
-  try {
-    manifest = JSON.parse(manifestResult.text);
-  } catch {
-    throw new Error(`Manifest generation failed. Raw: ${manifestResult.text.slice(0, 300)}`);
+  console.log(`[self-modify] Raw manifest (${manifestResult.text.length} chars):\n${manifestResult.text}`);
+
+  // Parse plain-text manifest
+  const lines = manifestResult.text.split('\n').map(l => l.trim()).filter(Boolean);
+  const filePaths = lines.filter(l => !l.startsWith('NPM:') && !l.startsWith('ENV:') && !l.startsWith('SUMMARY:') && l.includes('/'));
+  const npmLine = lines.find(l => l.startsWith('NPM:'));
+  const envLine = lines.find(l => l.startsWith('ENV:'));
+  const summaryLine = lines.find(l => l.startsWith('SUMMARY:'));
+
+  if (filePaths.length === 0) {
+    throw new Error(`Manifest returned no file paths. Raw: ${manifestResult.text.slice(0, 200)}`);
   }
 
-  console.log(`[self-modify] Manifest: ${manifest.files.length} file(s) planned`);
+  const manifest = {
+    files: filePaths,
+    npmPackage: npmLine ? npmLine.replace('NPM:', '').trim() : undefined,
+    envVarName: envLine ? envLine.replace('ENV:', '').trim() : undefined,
+    summary: summaryLine ? summaryLine.replace('SUMMARY:', '').trim() : intent,
+  };
+
+  console.log(`[self-modify] Manifest: ${manifest.files.length} file(s) planned: ${manifest.files.join(', ')}`);
 
   // Step 2: Generate each file's content in a separate call (no truncation risk)
   const generatedFiles: Array<{ path: string; content: string }> = [];
 
-  for (const fileSpec of manifest.files) {
-    console.log(`[self-modify] Generating: ${fileSpec.path}`);
+  for (const filePath of manifest.files) {
+    console.log(`[self-modify] Generating: ${filePath}`);
 
     const contentPrompt = `You are a TypeScript/Node.js expert writing a production file for Jarvis, an AI orchestrator running on Railway (Node.js ESM).
 
@@ -92,9 +101,7 @@ ${REPO_CONTEXT}
 
 Overall task: ${intent}
 
-Write the complete content for this specific file:
-Path: ${fileSpec.path}
-Plan: ${fileSpec.plan}
+Write the complete content for this specific file: ${filePath}
 
 Return ONLY the complete file content — raw TypeScript/JavaScript, no JSON wrapper, no markdown fences, no explanation. Just the code.`;
 
@@ -111,7 +118,7 @@ Return ONLY the complete file content — raw TypeScript/JavaScript, no JSON wra
       .replace(/\n```$/m, '')
       .trim();
 
-    generatedFiles.push({ path: fileSpec.path, content });
+    generatedFiles.push({ path: filePath, content });
   }
 
   const generated = {
