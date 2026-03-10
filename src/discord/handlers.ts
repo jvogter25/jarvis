@@ -197,6 +197,7 @@ export function getPendingState() {
   return {
     stagingApprovals: Object.fromEntries(pendingStagingApproval),
     prApprovals: Object.fromEntries(pendingPRApproval),
+    previewApprovals: Object.fromEntries(pendingPreviewApproval),
     emailApprovals: Object.fromEntries(pendingEmailApproval),
   };
 }
@@ -204,6 +205,7 @@ export function getPendingState() {
 export function restorePendingState(state: ReturnType<typeof getPendingState>): void {
   for (const [k, v] of Object.entries(state.stagingApprovals ?? {})) pendingStagingApproval.set(k, v as any);
   for (const [k, v] of Object.entries(state.prApprovals ?? {})) pendingPRApproval.set(k, v as any);
+  for (const [k, v] of Object.entries(state.previewApprovals ?? {})) pendingPreviewApproval.set(k, v as PendingPreviewEntry);
   for (const [k, v] of Object.entries(state.emailApprovals ?? {})) pendingEmailApproval.set(k, v as any);
 }
 
