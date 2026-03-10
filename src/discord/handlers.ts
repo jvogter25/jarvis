@@ -1,5 +1,6 @@
 import { Message as DiscordMessage, TextChannel, DMChannel, NewsChannel } from 'discord.js';
-import { getRecentMessages, saveMessage, getSystemPrompt, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
+import { getRecentMessages, saveMessage, getSystemPrompt, getChannelSummary, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
+import { maybeCondenseChannel } from '../memory/summarizer.js';
 import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
@@ -354,6 +355,7 @@ export async function handleMessage(msg: DiscordMessage) {
     console.log('Fetching history...');
     const history = await getRecentMessages(msg.channelId);
     await saveMessage(msg.channelId, 'user', msg.content);
+    maybeCondenseChannel(msg.channelId).catch(() => {}); // async, don't await
 
     console.log('Routing to agent...');
     const agentResponse = await routeToAgent(msg.content);
@@ -370,7 +372,11 @@ export async function handleMessage(msg: DiscordMessage) {
 
     console.log('Using brain...');
     const systemPrompt = projectChannelConfig?.system_prompt ?? await getSystemPrompt();
-    const result = await think(systemPrompt, history, msg.content);
+    const channelSummary = await getChannelSummary(msg.channelId);
+    const effectiveSystemPrompt = channelSummary
+      ? `${systemPrompt}\n\n---\nCONVERSATION HISTORY SUMMARY (older messages):\n${channelSummary}`
+      : systemPrompt;
+    const result = await think(effectiveSystemPrompt, history, msg.content);
     stopTyping();
 
     await saveMessage(msg.channelId, 'assistant', result.text);

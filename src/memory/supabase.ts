@@ -297,3 +297,76 @@ export async function loadShutdownState(): Promise<Record<string, unknown> | nul
   const { data } = await supabase.from('shutdown_state').select('state').eq('id', 'singleton').single();
   return data?.state ?? null;
 }
+
+// ─── Conversation Memory Summarization ───────────────────────────────────────
+
+export const SUMMARY_THRESHOLD = 30;
+export const RECENCY_WINDOW = 10;
+
+export async function getMessageCount(channelId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('channel_id', channelId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+export async function getChannelSummary(channelId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('channel_summaries')
+    .select('summary')
+    .eq('channel_id', channelId)
+    .single();
+  return data?.summary ?? null;
+}
+
+export async function upsertChannelSummary(channelId: string, summary: string, messageCount: number): Promise<void> {
+  const { error } = await supabase.from('channel_summaries').upsert({
+    channel_id: channelId,
+    summary,
+    message_count_at_summary: messageCount,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'channel_id' });
+  if (error) throw error;
+}
+
+export async function deleteOldMessages(channelId: string, keepCount: number): Promise<void> {
+  // Get IDs of messages to keep
+  const { data: recent } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('channel_id', channelId)
+    .order('created_at', { ascending: false })
+    .limit(keepCount);
+
+  if (!recent || recent.length === 0) return;
+  const keepIds = recent.map(r => r.id);
+
+  const { error } = await supabase
+    .from('messages')
+    .delete()
+    .eq('channel_id', channelId)
+    .not('id', 'in', `(${keepIds.join(',')})`);
+  if (error) throw error;
+}
+
+export async function getMessagesForSummary(channelId: string, excludeRecentCount: number): Promise<Array<{role: string; content: string}>> {
+  const { count } = await supabase
+    .from('messages')
+    .select('*', { count: 'exact', head: true })
+    .eq('channel_id', channelId);
+
+  const total = count ?? 0;
+  const limit = Math.max(0, total - excludeRecentCount);
+  if (limit === 0) return [];
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('role, content')
+    .eq('channel_id', channelId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
