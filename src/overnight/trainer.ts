@@ -61,8 +61,9 @@ Respond with JSON only, no markdown:
 {"analysis": "what you found", "new_prompt": "the improved system prompt"}`;
 
   try {
-    const text = (await think('You are a prompt engineering assistant.', [], analysisPrompt, { model: 'sonnet', noTools: true })).text;
-    const parsed = JSON.parse(text);
+    const raw = (await think('You are a prompt engineering assistant.', [], analysisPrompt, { model: 'sonnet', noTools: true })).text;
+    const cleaned = raw.replace(/^```(?:json)?\n/m, '').replace(/\n```$/m, '').trim();
+    const parsed = JSON.parse(cleaned);
     await saveSystemPrompt(parsed.new_prompt);
 
     // ── Knowledge fold: incorporate recent training material into the prompt ──

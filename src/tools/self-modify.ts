@@ -161,7 +161,11 @@ If fixes are needed, include corrected file objects in "fixes": [{"path": "...",
 
   let review: { approved: boolean; notes: string; fixes?: Array<{ path: string; content: string }> };
   try {
-    review = JSON.parse(reviewResult.text);
+    const cleanedReview = reviewResult.text
+      .replace(/^```(?:json)?\n/m, '')
+      .replace(/\n```$/m, '')
+      .trim();
+    review = JSON.parse(cleanedReview);
   } catch {
     review = { approved: true, notes: 'Review parse failed — proceeding with generated code.' };
   }
