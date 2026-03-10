@@ -5,7 +5,18 @@ import { AgentChainPlan, AgentChainStep } from './types.js';
 const MAX_CHAIN_LENGTH = 4;
 const SINGLE_AGENT_TASKS = ['greeting', 'general conversation', 'status check', 'clarification', 'simple question'];
 
+// Topics that are always internal Jarvis config — never treat as user-facing incidents
+const INTERNAL_TOPICS = [
+  'github token', 'railway env', 'e2b sandbox', 'claude code agent',
+  'jarvis config', 'jarvis setup', 'deployment fix', 'git auth',
+  'environment variable', 'railway secret', 'api key', 'sandbox setup',
+];
+
 export async function planAgentChain(userMessage: string): Promise<AgentChainPlan | null> {
+  // Short-circuit: never chain on internal Jarvis infrastructure talk
+  const lower = userMessage.toLowerCase();
+  if (INTERNAL_TOPICS.some(t => lower.includes(t))) return null;
+
   const agents = loadAgents();
   const agentList = agents.map(a => `- ${a.id}: ${a.description ?? a.name}`).join('\n');
 
@@ -21,6 +32,7 @@ Decide if this task needs a CHAIN of agents working in sequence, or if a single 
 Rules:
 - Only chain when the task genuinely requires multiple specialist phases (e.g. research → analysis → writing)
 - Tasks that are any of the following should NOT chain: ${SINGLE_AGENT_TASKS.join(', ')}
+- NEVER chain for messages about Jarvis's own configuration, credentials, deployments, code changes, or infrastructure — those are internal and should be handled directly
 - Maximum ${MAX_CHAIN_LENGTH} steps
 - Each step must use a valid agent ID from the list above
 

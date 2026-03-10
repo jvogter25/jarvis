@@ -2,8 +2,8 @@ import { Sandbox } from 'e2b';
 import { think } from '../brain.js';
 import { buildClaudeCodeInstructions } from './claude-code-instructions.js';
 
-const SESSION_TIMEOUT_MS = 60 * 60 * 1000;  // 60 min
-const WATCHDOG_TRIGGER_MS = 50 * 60 * 1000; // check at T+50min
+const SESSION_TIMEOUT_MS = 3 * 60 * 60 * 1000;  // 3 hours
+const WATCHDOG_TRIGGER_MS = 2.5 * 60 * 60 * 1000; // check at T+2.5hrs
 
 export interface ClaudeCodeResult {
   success: boolean;

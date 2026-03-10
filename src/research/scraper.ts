@@ -8,7 +8,45 @@ export interface RawPost {
   score: number;
 }
 
+// Reddit OAuth token cache — valid for 1 hour
+let redditToken: string | null = null;
+let redditTokenExpiry = 0;
+
+async function getRedditToken(): Promise<string | null> {
+  const clientId = process.env.REDDIT_CLIENT_ID;
+  const clientSecret = process.env.REDDIT_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+
+  if (redditToken && Date.now() < redditTokenExpiry) return redditToken;
+
+  try {
+    const res = await axios.post(
+      'https://www.reddit.com/api/v1/access_token',
+      'grant_type=client_credentials',
+      {
+        auth: { username: clientId, password: clientSecret },
+        headers: {
+          'User-Agent': 'Jarvis/1.0 research-bot',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+    redditToken = res.data.access_token;
+    redditTokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000; // refresh 1min early
+    return redditToken;
+  } catch (err) {
+    console.error(`Reddit OAuth failed: ${(err as Error).message}`);
+    return null;
+  }
+}
+
 export async function scrapeReddit(): Promise<RawPost[]> {
+  const token = await getRedditToken();
+  if (!token) {
+    console.error('Reddit scrape skipped: REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET not set');
+    return [];
+  }
+
   const subreddits = [
     // Core entrepreneurship
     'Entrepreneur', 'SideProject', 'smallbusiness', 'startups',
@@ -26,8 +64,11 @@ export async function scrapeReddit(): Promise<RawPost[]> {
 
   for (const sub of subreddits) {
     try {
-      const res = await axios.get(`https://www.reddit.com/r/${sub}/hot.json?limit=20`, {
-        headers: { 'User-Agent': 'Jarvis/1.0 research-bot' },
+      const res = await axios.get(`https://oauth.reddit.com/r/${sub}/hot?limit=20`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'User-Agent': 'Jarvis/1.0 research-bot',
+        },
       });
       for (const child of res.data.data.children) {
         const post = child.data;
@@ -40,7 +81,8 @@ export async function scrapeReddit(): Promise<RawPost[]> {
         });
       }
     } catch (err) {
-      console.error(`Reddit scrape failed for r/${sub}:`, err);
+      const status = (err as any)?.response?.status;
+      console.error(`Reddit scrape failed for r/${sub}: ${status ? `HTTP ${status}` : (err as Error).message}`);
     }
   }
 
@@ -70,7 +112,7 @@ export async function scrapeHN(): Promise<RawPost[]> {
         });
       }
     } catch (err) {
-      console.error(`HN scrape failed for query ${q}:`, err);
+      console.error(`HN scrape failed for query ${q}: ${(err as Error).message}`);
     }
   }
 
@@ -97,7 +139,7 @@ export async function scrapeProductHunt(): Promise<RawPost[]> {
       score: 0,
     }));
   } catch (err) {
-    console.error('Product Hunt scrape failed:', err);
+    console.error(`Product Hunt scrape failed: ${(err as Error).message}`);
     return [];
   }
 }
@@ -120,7 +162,7 @@ export async function scrapeIndieHackers(): Promise<RawPost[]> {
       score: 0,
     }));
   } catch (err) {
-    console.error('IndieHackers scrape failed:', err);
+    console.error(`IndieHackers scrape failed: ${(err as Error).message}`);
     return [];
   }
 }
@@ -162,7 +204,7 @@ export async function scrapeBraveSearch(): Promise<RawPost[]> {
         });
       }
     } catch (err) {
-      console.error(`Brave search failed for "${query}":`, err);
+      console.error(`Brave search failed for "${query}": ${(err as Error).message}`);
     }
   }
 
@@ -198,7 +240,7 @@ export async function scrapeG2Reviews(): Promise<RawPost[]> {
         });
       }
     } catch (err) {
-      console.error(`G2 search failed:`, err);
+      console.error(`G2 search failed: ${(err as Error).message}`);
     }
   }
 
