@@ -256,7 +256,7 @@ export interface ThinkResult {
   toolResults: ToolCallResult[];
 }
 
-async function executeTool(name: string, input: Record<string, unknown>): Promise<ToolCallResult> {
+async function executeTool(name: string, input: Record<string, unknown>, notify?: (msg: string) => Promise<void>): Promise<ToolCallResult> {
   switch (name) {
     case 'deploy_html': {
       const html = input.html as string;
@@ -368,7 +368,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
     case 'self_modify_request': {
       const { requestSelfModify } = await import('./tools/self-modify.js');
-      const result = await requestSelfModify(input.intent as string);
+      const result = await requestSelfModify(input.intent as string, notify);
       return {
         toolName: name,
         output: result.message,
@@ -485,6 +485,8 @@ export interface ThinkOptions {
   noTools?: boolean;
   /** Override max_tokens (default 8192). Use 32000 for large codegen responses. */
   maxTokens?: number;
+  /** Live status callback — passed to long-running tools like self_modify_request */
+  notify?: (msg: string) => Promise<void>;
 }
 
 /**
@@ -553,7 +555,7 @@ export async function think(
 
     for (const block of toolUseBlocks) {
       if (block.type !== 'tool_use') continue;
-      const result = await executeTool(block.name, block.input as Record<string, unknown>);
+      const result = await executeTool(block.name, block.input as Record<string, unknown>, options.notify);
       allToolResults.push(result);
       toolResultContent.push({
         type: 'tool_result',

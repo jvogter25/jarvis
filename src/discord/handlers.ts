@@ -473,7 +473,8 @@ export async function handleMessage(msg: DiscordMessage) {
     const effectiveSystemPrompt = channelSummary
       ? `${systemPrompt}\n\n---\nCONVERSATION HISTORY SUMMARY (older messages):\n${channelSummary}`
       : systemPrompt;
-    const result = await think(effectiveSystemPrompt, history, msg.content);
+    const notify = (m: string) => msg.channel.send(m).then(() => {});
+    const result = await think(effectiveSystemPrompt, history, msg.content, { notify });
     stopTyping();
 
     await saveMessage(msg.channelId, 'assistant', result.text);
