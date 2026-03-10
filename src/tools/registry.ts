@@ -90,6 +90,27 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['DISCORD_GUILD_ID', 'GITHUB_TOKEN'],
   },
+  {
+    id: 'draft_email',
+    name: 'Draft Email',
+    description: 'Compose an email in Jake\'s voice, post to Discord for approval before any send',
+    installed: true,
+    requiresEnv: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'],
+  },
+  {
+    id: 'send_email',
+    name: 'Send Email',
+    description: 'Send an email from the Jarvis Gmail account (called after approval gate)',
+    installed: true,
+    requiresEnv: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'],
+  },
+  {
+    id: 'check_inbox',
+    name: 'Check Inbox',
+    description: 'Read unread Gmail inbox threads and surface replies to Discord',
+    installed: true,
+    requiresEnv: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {

@@ -3,6 +3,7 @@ import { getAllProjectConfigs, getRecentMessages, getUnpostedOpportunities } fro
 import { think } from '../brain.js';
 import { CHANNELS } from '../discord/channels.js';
 import { generateOvernightSummary } from './mode.js';
+import { readInbox } from '../tools/gmail.js';
 
 export async function postMorningBriefing(discord: Client) {
   console.log('Morning briefing: generating...');
@@ -10,12 +11,27 @@ export async function postMorningBriefing(discord: Client) {
   const history = await getRecentMessages(CHANNELS.JARVIS, 50);
   const opportunities = await getUnpostedOpportunities();
 
+  // Fetch inbox data for morning brief (non-fatal if Gmail not configured)
+  let inboxSummary = '';
+  try {
+    const threads = await readInbox(10);
+    const replyThreads = threads.filter(t => t.isReply);
+    if (replyThreads.length > 0) {
+      inboxSummary = `\n\nOvernight email replies (${replyThreads.length}):\n` +
+        replyThreads.map(t => `- "${t.subject}" from ${t.from}`).join('\n');
+    } else if (threads.length > 0) {
+      inboxSummary = `\n\nInbox: ${threads.length} unread (no replies needing action)`;
+    }
+  } catch {
+    // Gmail not configured or API error — skip silently
+  }
+
   const context = `
 Recent conversations (last 50):
 ${history.map(m => `${m.role}: ${m.content}`).join('\n').slice(0, 3000)}
 
 Top unreviewed opportunities:
-${opportunities.slice(0, 3).map(o => `- [${o.score}/100] ${o.title}: ${o.summary}`).join('\n') || 'None yet'}
+${opportunities.slice(0, 3).map(o => `- [${o.score}/100] ${o.title}: ${o.summary}`).join('\n') || 'None yet'}${inboxSummary}
 `;
 
   try {

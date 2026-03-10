@@ -196,6 +196,42 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['project_name', 'slug', 'description'],
     },
   },
+  draft_email: {
+    name: 'draft_email',
+    description: 'Compose an email on Jake\'s behalf. Pulls Jake\'s writing style from the knowledge base, writes the email in his voice, and posts it to Discord for approval before any send. Jake says "send it" to trigger the actual send.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string', description: 'Email subject line' },
+        body: { type: 'string', description: 'Email body — write this in Jake\'s voice using the style guide' },
+        context: { type: 'string', description: 'What this email is for — used to pull the most relevant style guidance' },
+      },
+      required: ['to', 'subject', 'body', 'context'],
+    },
+  },
+  send_email: {
+    name: 'send_email',
+    description: 'Send an email from the Jarvis Gmail account. Only call this after Jake has approved a draft via the Discord approval gate. Do not call this directly without prior draft_email approval.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string', description: 'Email subject line' },
+        body: { type: 'string', description: 'Email body content' },
+      },
+      required: ['to', 'subject', 'body'],
+    },
+  },
+  check_inbox: {
+    name: 'check_inbox',
+    description: 'Check the Jarvis Gmail inbox for unread messages. Returns a summary of unread threads — who sent them, subject, and whether they are replies to emails Jarvis sent. Use when Jake asks to check email or when the inbox monitor surfaces something.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -212,6 +248,7 @@ export interface ToolCallResult {
     files: Array<{ path: string; content: string }>;
     plan: import('./tools/builder.js').BuildPlan;
   };
+  emailDraftResult?: { to: string; subject: string; body: string };
 }
 
 export interface ThinkResult {
@@ -376,6 +413,54 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       }
     }
 
+    case 'draft_email': {
+      const { queryKnowledge } = await import('./tools/knowledge.js');
+      const to = input.to as string;
+      const subject = input.subject as string;
+      const body = input.body as string;
+      const context = input.context as string;
+
+      const styleGuide = await queryKnowledge('email_style', context);
+
+      const preview =
+        `**To:** ${to}\n**Subject:** ${subject}\n\n${body}\n\n---\n*Style guide applied:* ${styleGuide.slice(0, 200)}`;
+
+      return {
+        toolName: name,
+        output: preview,
+        emailDraftResult: { to, subject, body },
+      };
+    }
+
+    case 'send_email': {
+      const { sendEmail } = await import('./tools/gmail.js');
+      const to = input.to as string;
+      const subject = input.subject as string;
+      const body = input.body as string;
+      try {
+        await sendEmail(to, subject, body);
+        return { toolName: name, output: `Sent to ${to}.` };
+      } catch (err) {
+        return { toolName: name, output: `Send failed: ${(err as Error).message}` };
+      }
+    }
+
+    case 'check_inbox': {
+      const { readInbox } = await import('./tools/gmail.js');
+      try {
+        const threads = await readInbox(20);
+        if (threads.length === 0) {
+          return { toolName: name, output: 'Inbox is clear — no unread messages.' };
+        }
+        const formatted = threads.map(t =>
+          `• **${t.subject}**\n  From: ${t.from}\n  ${t.snippet.slice(0, 100)}${t.isReply ? ' *(reply)*' : ''}`
+        ).join('\n\n');
+        return { toolName: name, output: `${threads.length} unread thread(s):\n\n${formatted}` };
+      } catch (err) {
+        return { toolName: name, output: `Inbox check failed: ${(err as Error).message}` };
+      }
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -420,11 +505,14 @@ export async function think(
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
-    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project'];
+    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox'];
     return [
       TOOL_SCHEMAS.self_modify_request,
       TOOL_SCHEMAS.search_knowledge,
       TOOL_SCHEMAS.create_project,
+      TOOL_SCHEMAS.draft_email,
+      TOOL_SCHEMAS.send_email,
+      TOOL_SCHEMAS.check_inbox,
       ...Object.values(TOOL_SCHEMAS).filter(
         t => !alwaysAvailable.includes(t.name) && installedToolIds.has(t.name)
       ),
