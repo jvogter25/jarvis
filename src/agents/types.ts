@@ -4,3 +4,14 @@ export interface Agent {
   description: string; // from frontmatter "description" field
   systemPrompt: string;// full file content
 }
+
+export interface AgentChainStep {
+  agentId: string;
+  role: string;
+  handoffContext: string;
+}
+
+export interface AgentChainPlan {
+  steps: AgentChainStep[];
+  rationale: string;
+}

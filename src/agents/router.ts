@@ -1,7 +1,20 @@
 import { loadAgents } from './manifest.js';
 import { think } from '../brain.js';
+import { planAgentChain } from './chain-planner.js';
+import { runAgentChain, StepCompleteCallback } from './chain-runner.js';
 
-export async function routeToAgent(userMessage: string): Promise<string | null> {
+export async function routeToAgent(
+  userMessage: string,
+  onStepComplete?: StepCompleteCallback
+): Promise<string | null> {
+  // Try chain first
+  const chainPlan = await planAgentChain(userMessage);
+  if (chainPlan && chainPlan.steps.length > 1) {
+    const result = await runAgentChain(userMessage, chainPlan, onStepComplete);
+    return result.finalOutput;
+  }
+
+  // Fallback: existing single-agent logic unchanged
   const agents = loadAgents();
   const agentList = agents.map(a => `- ${a.id}: ${a.description}`).join('\n');
 
