@@ -177,26 +177,62 @@ async function runSingleSubtask(
       throw new Error(`Claude Code preflight failed (exit ${preflight.exitCode}): ${preflightOut.slice(0, 300)}`);
     }
 
+    // Network check: verify E2B sandbox can reach api.anthropic.com
+    console.log('[claude-code] Checking network connectivity to api.anthropic.com...');
+    const networkCheck = await sandbox.commands.run(
+      'curl -sf --max-time 10 https://api.anthropic.com -o /dev/null && echo "NETWORK_OK"',
+      { timeoutMs: 15_000 }
+    );
+    const networkOut = (networkCheck.stdout ?? '') + (networkCheck.stderr ?? '');
+    if (!networkOut.includes('NETWORK_OK')) {
+      throw new Error(`E2B sandbox cannot reach api.anthropic.com: ${networkOut.slice(0, 300)}`);
+    }
+    console.log('[claude-code] Network OK — api.anthropic.com reachable');
+    await notify?.(`🌐 Network OK — api.anthropic.com reachable`).catch(() => {});
+
     // Log TASK.md size so we can detect if it's too large
     const taskSize = await sandbox.commands.run('wc -c /home/user/TASK.md', { timeoutMs: 5_000 });
     console.log('[claude-code] TASK.md size:', taskSize.stdout?.trim());
 
     // Run Claude Code CLI with stdout/stderr streaming
+    // stdbuf -oL -eL forces line-buffered output so E2B onStdout callbacks fire
+    // without PTY (non-TTY mode defaults to full-buffer which only flushes on exit)
     console.log('[claude-code] Launching Claude Code agent...');
-    const claudeResult = await sandbox.commands.run(
-      `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "Your full task instructions are in /home/user/TASK.md — read that file first, then execute exactly as specified."`,
-      {
-        timeoutMs: 0,  // 0 = no timeout (E2B default is 60s which kills Claude Code mid-run)
-        envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
-        onStdout: (data) => onOutput(data.line ?? data.toString()),
-        onStderr: (data) => onOutput(data.line ?? data.toString()),
-      }
-    );
-    clearTimeout(notifyTimer);
-    await flushToDiscord(true);
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+    try {
+      pollTimer = setInterval(async () => {
+        try {
+          const elapsed = Math.floor((Date.now() - startTime) / 60_000);
+          const tail = await sandbox!.commands.run(
+            'tail -20 /home/user/claude-output.log 2>/dev/null || echo "(no output yet)"',
+            { timeoutMs: 5_000 }
+          );
+          await notify?.(`⏱️ T+${elapsed}m poll:\n\`\`\`\n${tail.stdout?.slice(0, 400)}\n\`\`\``).catch(() => {});
+        } catch { /* sandbox may be torn down */ }
+      }, 60_000);
 
-    if (claudeResult.exitCode !== 0) {
-      throw new Error(`Claude Code exited with code ${claudeResult.exitCode}: ${claudeResult.stderr?.slice(0, 500)}`);
+      const claudeResult = await sandbox.commands.run(
+        `cd ${REPO_PATH} && stdbuf -oL -eL claude --dangerously-skip-permissions -p "Your full task instructions are in /home/user/TASK.md — read that file first, then execute exactly as specified." 2>&1 | tee /home/user/claude-output.log`,
+        {
+          timeoutMs: 0,  // 0 = no timeout (E2B default is 60s which kills Claude Code mid-run)
+          envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
+          onStdout: (data: string) => onOutput(data),
+          onStderr: (data: string) => onOutput(data),
+        }
+      );
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+      clearTimeout(notifyTimer);
+      await flushToDiscord(true);
+
+      console.log(`[claude-code] Exited with code ${claudeResult.exitCode}`);
+      if (claudeResult.stderr) console.log(`[claude-code] stderr: ${claudeResult.stderr.slice(0, 500)}`);
+
+      if (claudeResult.exitCode !== 0) {
+        throw new Error(`Claude Code exited with code ${claudeResult.exitCode}: ${claudeResult.stderr?.slice(0, 500)}`);
+      }
+    } finally {
+      if (pollTimer) clearInterval(pollTimer);
     }
 
     // Push output to a checkpoint branch so next subtask (or PR flow) can pick it up

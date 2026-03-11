@@ -473,7 +473,16 @@ export async function handleMessage(msg: DiscordMessage) {
     const effectiveSystemPrompt = channelSummary
       ? `${systemPrompt}\n\n---\nCONVERSATION HISTORY SUMMARY (older messages):\n${channelSummary}`
       : systemPrompt;
-    const notify = (m: string) => msg.channel.send(m).then(() => {});
+    // Always post coding progress to #engineering so Jake sees it there, not in #jarvis
+    const { getDiscordClient } = await import('./client.js');
+    const discordClient = getDiscordClient();
+    const engChannelRaw = discordClient
+      ? await discordClient.channels.fetch(CHANNELS.ENGINEERING).catch(() => null)
+      : null;
+    const engChannel = (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel']))
+      ? engChannelRaw as SendableChannel
+      : msg.channel;  // fallback if engineering unavailable
+    const notify = (m: string) => engChannel.send(m).then(() => {});
     const result = await think(effectiveSystemPrompt, history, msg.content, { notify });
     stopTyping();
 
