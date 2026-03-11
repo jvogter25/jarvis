@@ -35,10 +35,16 @@ async function runSelfModifyInBackground(
       await reportChannel.send(`Self-modify failed: ${result.message}`);
       return;
     }
-    // Key the pending approval by the engineering channel ID so Jake can approve there
-    const approvalKey = reportChannel.id;
-    pendingPRApproval.set(approvalKey, { plan: result.plan });
-    await reportChannel.send(result.message);
+    // Key by #jarvis so Jake's "ship it" there is found by handleMessage
+    pendingPRApproval.set(CHANNELS.JARVIS, { plan: result.plan });
+    await reportChannel.send(result.message);  // summary to #engineering
+    // Tell Jake in #jarvis where to approve
+    const { getDiscordClient } = await import('./client.js');
+    const dc = getDiscordClient();
+    const jarvisChannel = dc ? await dc.channels.fetch(CHANNELS.JARVIS).catch(() => null) : null;
+    if (jarvisChannel && isSendable(jarvisChannel as DiscordMessage['channel'])) {
+      await (jarvisChannel as SendableChannel).send(result.message);
+    }
   } catch (err) {
     await reportChannel.send(`Self-modify error: ${(err as Error).message}`);
   }
@@ -509,27 +515,18 @@ export async function handleMessage(msg: DiscordMessage) {
         await notifySlackEngineering(`🔧 Staging ready: *${build.slug}*\n${build.stagingUrl}\nApprove in Discord to ship.`);
       }
       if (toolResult.selfModifyProposal) {
-        // self_modify is non-blocking: we already fired background in the brain tool result,
-        // but here the plan was already generated synchronously. Post the approval prompt
-        // to engineering channel and store keyed by engineering channel ID.
+        // Always key by #jarvis so Jake's "ship it" there is caught by handleMessage.
+        // Post summary to #engineering for visibility, approval prompt to #jarvis.
+        pendingPRApproval.set(CHANNELS.JARVIS, { plan: toolResult.selfModifyProposal.plan });
         const { getDiscordClient } = await import('./client.js');
         const discord = getDiscordClient();
         if (discord) {
           const engChannelRaw = await discord.channels.fetch(CHANNELS.ENGINEERING).catch(() => null);
           if (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel'])) {
-            const engChannel = engChannelRaw as SendableChannel;
-            pendingPRApproval.set(engChannel.id, { plan: toolResult.selfModifyProposal.plan });
-            await engChannel.send(toolResult.selfModifyProposal.message);
-            await msg.channel.send("On it — I'll post the PR to #engineering when Claude Code finishes (usually 10-15 min).");
-          } else {
-            // Fallback: post to current channel if engineering channel unavailable
-            pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
-            await msg.channel.send(toolResult.selfModifyProposal.message);
+            await (engChannelRaw as SendableChannel).send(toolResult.selfModifyProposal.message);
           }
-        } else {
-          pendingPRApproval.set(msg.channelId, { plan: toolResult.selfModifyProposal.plan });
-          await msg.channel.send(toolResult.selfModifyProposal.message);
         }
+        await msg.channel.send(toolResult.selfModifyProposal.message);
       }
       if (toolResult.previewResult) {
         pendingPreviewApproval.set(msg.channelId, toolResult.previewResult);
