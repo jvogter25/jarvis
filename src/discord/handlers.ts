@@ -165,9 +165,9 @@ export async function handleDesignMessage(msg: DiscordMessage) {
   const stopTyping = keepTyping(msg.channel);
 
   try {
-    const content = msg.content.trim();
+    let content = msg.content.trim();
 
-    // Image attachment → save as inspiration
+    // Attachment handling
     if (msg.attachments.size > 0) {
       const attachment = msg.attachments.first()!;
       if (attachment.contentType?.startsWith('image/')) {
@@ -180,10 +180,20 @@ export async function handleDesignMessage(msg: DiscordMessage) {
         stopTyping();
         await msg.channel.send(`Saved to inspiration library as \`${fileName}\`. I'll use this as visual context when building.`);
         return;
-      } else {
-        stopTyping();
-        await msg.channel.send(`I can only save image attachments here. Drop a screenshot or design image, paste a code block to save a component, or drop a URL to extract styles.`);
-        return;
+      } else if (
+        attachment.contentType?.startsWith('text/') ||
+        attachment.name?.match(/\.(txt|md|csv|json|ts|js|py|html|css)$/i)
+      ) {
+        // Text/code file — fetch content and inject into brain context
+        try {
+          const res = await fetch(attachment.url);
+          const fileText = await res.text();
+          content = `[File: ${attachment.name}]\n\`\`\`\n${fileText.slice(0, 12000)}\n\`\`\`\n\n${content}`.trim();
+        } catch (err) {
+          stopTyping();
+          await msg.channel.send(`Couldn't read that file: ${(err as Error).message}`);
+          return;
+        }
       }
     }
 
@@ -589,13 +599,33 @@ export async function handleMessage(msg: DiscordMessage) {
     // Fall through to normal brain routing if engineering channel not available
   }
 
+  // Effective content — may be augmented with file attachment text below
+  let content = msg.content.trim();
+
+  // Text file attachment: fetch content and prepend to brain input
+  if (msg.attachments.size > 0) {
+    const attachment = msg.attachments.first()!;
+    if (
+      attachment.contentType?.startsWith('text/') ||
+      attachment.name?.match(/\.(txt|md|csv|json|ts|js|py|html|css)$/i)
+    ) {
+      try {
+        const res = await fetch(attachment.url);
+        const fileText = await res.text();
+        content = `[File: ${attachment.name}]\n\`\`\`\n${fileText.slice(0, 12000)}\n\`\`\`\n\n${content}`.trim();
+      } catch {
+        // non-fatal — fall through with original content
+      }
+    }
+  }
+
   await msg.channel.sendTyping();
   const stopTyping = keepTyping(msg.channel);
 
   try {
     console.log('Fetching history...');
     const history = await getRecentMessages(msg.channelId);
-    await saveMessage(msg.channelId, 'user', msg.content);
+    await saveMessage(msg.channelId, 'user', content);
     maybeCondenseChannel(msg.channelId).catch(() => {}); // async, don't await
 
     console.log('Routing to agent...');
@@ -608,7 +638,7 @@ export async function handleMessage(msg: DiscordMessage) {
     ) => {
       await sendableChannel.send(`*Step ${stepIndex + 1}/${totalSteps} (${step.role}) complete...*`);
     };
-    const agentResponse = await routeToAgent(msg.content, onStepComplete);
+    const agentResponse = await routeToAgent(content, onStepComplete);
 
     if (agentResponse) {
       console.log('Agent responded');
@@ -637,7 +667,7 @@ export async function handleMessage(msg: DiscordMessage) {
       : msg.channel;  // fallback if engineering unavailable
     console.log('[notify] Engineering channel:', CHANNELS.ENGINEERING, '| fallback?', !engChannelRaw);
     const notify = (m: string) => engChannel.send(m).then(() => {});
-    const result = await think(effectiveSystemPrompt, history, msg.content, { notify });
+    const result = await think(effectiveSystemPrompt, history, content, { notify });
     stopTyping();
 
     await saveMessage(msg.channelId, 'assistant', result.text);

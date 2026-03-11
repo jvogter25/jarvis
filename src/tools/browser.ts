@@ -42,7 +42,8 @@ export interface InteractResult {
 }
 
 /**
- * Read any Twitter/X URL (tweet, article, thread) using Browserbase + Playwright.
+ * Read any Twitter/X URL (tweet, article, thread) using Browserbase + playwright-core.
+ * Runs directly in the Railway process — no E2B sandbox, no npm install delay.
  * Logs in automatically with TWITTER_USERNAME + TWITTER_PASSWORD if needed.
  */
 export async function readTwitterContent(url: string): Promise<BrowseResult> {
@@ -58,7 +59,8 @@ export async function readTwitterContent(url: string): Promise<BrowseResult> {
     return { url, title: '', content: '', error: 'TWITTER_USERNAME or TWITTER_PASSWORD not set in Railway env vars' };
   }
 
-  let session: { id: string; connectUrl: string };
+  // Create Browserbase session
+  let connectUrl: string;
   try {
     const sessionRes = await fetch('https://www.browserbase.com/v1/sessions', {
       method: 'POST',
@@ -69,73 +71,55 @@ export async function readTwitterContent(url: string): Promise<BrowseResult> {
     if (!sessionRes.ok) {
       return { url, title: '', content: '', error: `Browserbase session failed: ${sessionRes.status}` };
     }
-    session = await sessionRes.json() as { id: string; connectUrl: string };
+    const session = await sessionRes.json() as { id: string; connectUrl: string };
+    connectUrl = session.connectUrl;
   } catch (err) {
     return { url, title: '', content: '', error: `Browserbase connection failed: ${(err as Error).message}` };
   }
 
-  const script = `
-const { chromium } = require('playwright');
-(async () => {
-  const browser = await chromium.connectOverCDP(${JSON.stringify(session.connectUrl)});
-  const context = browser.contexts()[0] ?? await browser.newContext();
-  const page = context.pages()[0] ?? await context.newPage();
-
-  // Navigate to the target URL first
-  await page.goto(${JSON.stringify(url)}, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-  // Check if we hit a login wall
-  const needsLogin = await page.$('a[href="/login"], input[name="text"]') !== null
-    || (await page.title()).toLowerCase().includes('log in');
-
-  if (needsLogin) {
-    await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('input[name="text"]', { timeout: 10000 });
-    await page.fill('input[name="text"]', ${JSON.stringify(username)});
-    await page.click('button[role="button"]:has-text("Next")');
-    await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-    await page.fill('input[name="password"]', ${JSON.stringify(password)});
-    await page.click('button[data-testid="LoginForm_Login_Button"]');
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
-    // Now go to the original URL
-    await page.goto(${JSON.stringify(url)}, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  }
-
-  await page.waitForTimeout(2000); // let content render
-
-  const title = await page.title();
-
-  // Extract main text content — articles and tweets both render as readable text
-  const content = await page.evaluate(() => {
-    // Remove nav, ads, sidebars
-    ['nav', 'aside', '[role="banner"]', '[data-testid="sidebarColumn"]'].forEach(sel => {
-      document.querySelectorAll(sel).forEach(el => el.remove());
-    });
-    return (document.body.innerText || '').slice(0, 8000);
-  });
-
-  console.log(JSON.stringify({ title, content }));
-  await browser.close();
-})().catch(e => { console.error(JSON.stringify({ error: e.message })); process.exit(1); });
-`;
-
-  const { runShell } = await import('./shell.js');
-  const shellResult = await runShell(
-    ['npm install playwright --quiet', 'node script.js'],
-    [{ path: 'script.js', content: script }]
-  );
-
-  const lastLine = shellResult.stdout.split('\n').filter((l: string) => l.trim()).at(-1) ?? '';
+  // Use playwright-core directly — connects to Browserbase's remote browser over CDP.
+  // No local Chromium needed; Browserbase provides the browser.
   try {
-    const parsed = JSON.parse(lastLine) as { title?: string; content?: string; error?: string };
-    if (parsed.error) return { url, title: '', content: '', error: parsed.error };
-    return { url, title: parsed.title ?? '', content: parsed.content ?? '' };
-  } catch {
-    if (shellResult.exitCode !== 0) {
-      const errLine = shellResult.stderr.split('\n').filter((l: string) => l.trim()).at(-1) ?? 'Unknown error';
-      return { url, title: '', content: '', error: errLine };
+    const { chromium } = await import('playwright-core');
+    const browser = await chromium.connectOverCDP(connectUrl);
+    const context = browser.contexts()[0] ?? await browser.newContext();
+    const page = context.pages()[0] ?? await context.newPage();
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // Check for login wall
+    const title1 = await page.title();
+    const needsLogin = !!(await page.$('a[href="/login"]'))
+      || title1.toLowerCase().includes('log in')
+      || title1.toLowerCase().includes('sign in');
+
+    if (needsLogin) {
+      await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('input[name="text"]', { timeout: 10000 });
+      await page.fill('input[name="text"]', username);
+      await page.click('button[role="button"]:has-text("Next")');
+      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+      await page.fill('input[name="password"]', password);
+      await page.click('button[data-testid="LoginForm_Login_Button"]');
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     }
-    return { url, title: '', content: shellResult.stdout.slice(0, 8000) };
+
+    await page.waitForTimeout(2000);
+
+    const title = await page.title();
+    const content = await page.evaluate((): string => {
+      const doc = (globalThis as any).document; // runs in browser context
+      ['nav', 'aside', '[role="banner"]', '[data-testid="sidebarColumn"]'].forEach((sel: string) => {
+        doc.querySelectorAll(sel).forEach((el: any) => el.remove());
+      });
+      return ((doc.body.innerText as string) ?? '').slice(0, 8000);
+    });
+
+    await browser.close();
+    return { url, title, content };
+  } catch (err) {
+    return { url, title: '', content: '', error: (err as Error).message };
   }
 }
 
