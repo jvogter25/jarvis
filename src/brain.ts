@@ -153,7 +153,7 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   },
   self_modify_request: {
     name: 'self_modify_request',
-    description: 'Generate and propose a code change to the Jarvis codebase. Use when Jake asks to add a new integration, change behavior, or install a new tool. Also use when Jake pastes a URL for a tool and wants to add it. Opus writes and reviews all code. Jake approves in plain English — never shows diffs. For safe changes (new files only) Jake says yes/no. For core changes (editing existing files) a GitHub PR is opened.',
+    description: 'Request a code change to the Jarvis codebase. ONLY call this when Jake has explicitly asked you to add, build, implement, change, fix, or install something in the codebase — using words like "add", "build", "implement", "create", "install", "fix", or "change". NEVER call this to answer a question, explain status, describe what you are doing, or respond to conversational messages. If the message is a question (starts with "what", "how", "why", "can you", "tell me", etc.) do NOT call this tool. Calling this tool asks Jake to confirm before any code is written.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -252,6 +252,7 @@ export interface ToolCallResult {
   deployedUrl?: string;  // set when deploy_html succeeds
   stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
   selfModifyProposal?: { plan: import('./tools/self-modify.js').SelfModifyPlan; message: string };
+  selfModifyIntent?: string;  // pending confirmation — Opus not yet run
   createProjectResult?: { slug: string; generalChannelId: string; githubRepo: string };
   previewResult?: {
     slug: string;
@@ -408,12 +409,12 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
     }
 
     case 'self_modify_request': {
-      const { requestSelfModify } = await import('./tools/self-modify.js');
-      const result = await requestSelfModify(input.intent as string, notify);
+      // Don't run Opus yet — surface intent to handlers.ts for Jake's yes/no confirmation.
+      const intent = input.intent as string;
       return {
         toolName: name,
-        output: result.message,
-        ...(result.plan ? { selfModifyProposal: { plan: result.plan, message: result.message } } : {}),
+        output: `Awaiting Jake's confirmation to implement: ${intent}`,
+        selfModifyIntent: intent,
       };
     }
 

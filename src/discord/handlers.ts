@@ -68,6 +68,10 @@ const pendingPRApproval = new Map<string, {
 const recentlyShippedPR = new Map<string, { prUrl: string; shippedAt: number }>();
 const PR_MEMORY_MS = 15 * 60 * 1000;
 
+// Confirmation gate: before running Claude Code the brain surfaces the intent here.
+// Jake says yes/no; only on yes does Claude Code actually fire.
+const pendingSelfModifyConfirmation = new Map<string, { intent: string }>();
+
 interface PendingPreviewEntry {
   slug: string;
   previewUrl: string;
@@ -376,6 +380,33 @@ export async function handleMessage(msg: DiscordMessage) {
     // Conversational — fall through with pending preserved
   }
 
+  // Check if we're waiting for Jake to confirm a brain-proposed code change
+  const pendingConfirm = pendingSelfModifyConfirmation.get(msg.channelId);
+  if (pendingConfirm) {
+    if (isAffirmative(msg.content)) {
+      pendingSelfModifyConfirmation.delete(msg.channelId);
+      const { getDiscordClient } = await import('./client.js');
+      const discord = getDiscordClient();
+      const engChannelRaw = discord
+        ? await discord.channels.fetch(CHANNELS.ENGINEERING).catch(() => null)
+        : null;
+      if (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel'])) {
+        const engChannel = engChannelRaw as SendableChannel;
+        await msg.channel.send("On it — progress in #engineering.");
+        await saveMessage(msg.channelId, 'user', pendingConfirm.intent);
+        runSelfModifyInBackground(pendingConfirm.intent, engChannel).catch(err =>
+          console.error('[self-modify-confirm] Failed:', err)
+        );
+      }
+      return;
+    } else if (isNegative(msg.content)) {
+      pendingSelfModifyConfirmation.delete(msg.channelId);
+      await msg.channel.send("Got it — not implementing that. What else can I help with?");
+      return;
+    }
+    // Conversational — fall through with pending preserved
+  }
+
   // Check if we're waiting for E2B preview approval (ship it → full Vercel deploy)
   const pendingPreview = pendingPreviewApproval.get(msg.channelId);
   if (pendingPreview) {
@@ -629,6 +660,13 @@ export async function handleMessage(msg: DiscordMessage) {
         const stagingMsg = `Staging ready for **${build.slug}**: ${build.stagingUrl}\n\nSay **"ship it"** to deploy to production, or tell me what to change.`;
         await msg.channel.send(stagingMsg);
         await notifySlackEngineering(`🔧 Staging ready: *${build.slug}*\n${build.stagingUrl}\nApprove in Discord to ship.`);
+      }
+      if (toolResult.selfModifyIntent) {
+        // Brain wants to make a code change — ask Jake first before running Claude Code.
+        pendingSelfModifyConfirmation.set(msg.channelId, { intent: toolResult.selfModifyIntent });
+        await msg.channel.send(
+          `That sounds like a code change request.\n\n> ${toolResult.selfModifyIntent}\n\nShould I implement this? **(yes/no)**`
+        );
       }
       if (toolResult.selfModifyProposal) {
         // Always key by #jarvis so Jake's "ship it" there is caught by handleMessage.
