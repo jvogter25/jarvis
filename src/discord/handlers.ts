@@ -11,6 +11,24 @@ import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, 
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
 import { processTrainingMaterial } from '../tools/knowledge.js';
+import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+function getVersionString(): string {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const pkgPath = join(__dirname, '../../package.json');
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version: string };
+  const version = pkg.version;
+  try {
+    const hash = execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return `Jarvis v${version} (${hash})`;
+  } catch {
+    return `Jarvis v${version}`;
+  }
+}
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -395,8 +413,15 @@ export async function handleMessage(msg: DiscordMessage) {
     return;
   }
 
-  // Overnight mode deactivation
   const lower = msg.content.toLowerCase().trim();
+
+  // Version command
+  if (lower === 'version') {
+    await msg.channel.send(getVersionString());
+    return;
+  }
+
+  // Overnight mode deactivation
   if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
     deactivateOvernightMode();
     await msg.channel.send('Overnight mode deactivated. Builds can now go to production again.');
