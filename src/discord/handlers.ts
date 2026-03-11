@@ -5,7 +5,9 @@ import { think } from '../brain.js';
 import { routeToAgent } from '../agents/router.js';
 import { CHANNELS, splitMessage } from './channels.js';
 import { executeSelfModifyPlan, requestSelfModify, SelfModifyPlan } from '../tools/self-modify.js';
-import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger } from '../overnight/mode.js';
+import { activateOvernightMode, deactivateOvernightMode, detectOvernightTrigger, isOvernightActive, getOvernightInstructions } from '../overnight/mode.js';
+import { getInstalledTools } from '../tools/registry.js';
+import { loadAgents } from '../agents/manifest.js';
 import { isEmergencyLocked, activateEmergencyLock, deactivateEmergencyLock, detectKillPhrase, detectResumePhrase } from '../tools/emergency.js';
 import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, scanDesignLibrary } from '../tools/design.js';
 import { promoteToProduction } from '../tools/builder.js';
@@ -99,6 +101,49 @@ function isAffirmative(text: string): boolean {
 
 function isNegative(text: string): boolean {
   return NO_WORDS.has(text.toLowerCase().trim());
+}
+
+function buildStatusMessage(): string {
+  const uptimeSec = Math.floor(process.uptime());
+  const h = Math.floor(uptimeSec / 3600);
+  const m = Math.floor((uptimeSec % 3600) / 60);
+  const s = uptimeSec % 60;
+  const uptimeStr = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+
+  const emergencyLock = isEmergencyLocked() ? '🔴 ACTIVE — baseline mode only' : '🟢 Off';
+  const overnight = isOvernightActive()
+    ? `🌙 Active — "${getOvernightInstructions()}"`
+    : '⬜ Off';
+
+  const installedTools = getInstalledTools();
+  const toolList = installedTools.length > 0
+    ? installedTools.map(t => `  • ${t.name}`).join('\n')
+    : '  (none)';
+
+  let agentCount = 0;
+  try { agentCount = loadAgents().length; } catch {}
+
+  const pending = getPendingState();
+  const pendingLines: string[] = [];
+  const stagingCount = Object.keys(pending.stagingApprovals).length;
+  const prCount = Object.keys(pending.prApprovals).length;
+  const previewCount = Object.keys(pending.previewApprovals).length;
+  const emailCount = Object.keys(pending.emailApprovals).length;
+  if (stagingCount) pendingLines.push(`  • ${stagingCount} staging deploy(s) awaiting "ship it"`);
+  if (prCount) pendingLines.push(`  • ${prCount} self-modify PR(s) awaiting approval`);
+  if (previewCount) pendingLines.push(`  • ${previewCount} preview(s) awaiting "ship it"`);
+  if (emailCount) pendingLines.push(`  • ${emailCount} email draft(s) awaiting "send it"`);
+  const pendingStr = pendingLines.length > 0 ? pendingLines.join('\n') : '  None';
+
+  return [
+    '**Jarvis Status**',
+    `**Uptime:** ${uptimeStr}`,
+    `**Emergency lock:** ${emergencyLock}`,
+    `**Overnight mode:** ${overnight}`,
+    `**Agents loaded:** ${agentCount}`,
+    `**Installed tools (${installedTools.length}):**\n${toolList}`,
+    `**Pending approvals:**\n${pendingStr}`,
+  ].join('\n');
 }
 
 export async function handleDesignMessage(msg: DiscordMessage) {
@@ -400,8 +445,14 @@ export async function handleMessage(msg: DiscordMessage) {
     return;
   }
 
-  // Overnight mode deactivation
+  // Status command
   const lower = msg.content.toLowerCase().trim();
+  if (lower === 'status' || lower === '/status') {
+    await msg.channel.send(buildStatusMessage());
+    return;
+  }
+
+  // Overnight mode deactivation
   if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
     deactivateOvernightMode();
     await msg.channel.send('Overnight mode deactivated. Builds can now go to production again.');
