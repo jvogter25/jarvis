@@ -184,7 +184,7 @@ async function runSingleSubtask(
     // Run Claude Code CLI with stdout/stderr streaming
     console.log('[claude-code] Launching Claude Code agent...');
     const claudeResult = await sandbox.commands.run(
-      `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "$(cat /home/user/TASK.md)"`,
+      `cd ${REPO_PATH} && claude --dangerously-skip-permissions -p "Your full task instructions are in /home/user/TASK.md — read that file first, then execute exactly as specified."`,
       {
         timeoutMs: 0,  // 0 = no timeout (E2B default is 60s which kills Claude Code mid-run)
         envs: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
