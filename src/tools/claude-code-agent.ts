@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { rm, readFile } from 'fs/promises';
@@ -60,32 +60,14 @@ export async function runClaudeCodeAgent(intent: string, notify?: NotifyFn): Pro
       `Repo is at: ${workDir}\n` +
       `When done, commit all changes with message: "claude-code: ${intent.slice(0, 72)}"`;
 
-    console.log('[claude-code] SDK query starting...');
+    console.log('[claude-code] Spawning Claude Code CLI...');
     console.log('[claude-code] Prompt length:', prompt.length, 'bytes');
-    await notify?.(`🔍 **Prompt ready** (${prompt.length} bytes). Starting SDK query...`).catch(() => {});
+    await notify?.(`🔍 **Prompt ready** (${prompt.length} bytes). Starting Claude Code...`).catch(() => {});
 
-    // Run Claude Code SDK in-process with AbortController timeout
-    const { query } = await import('@anthropic-ai/claude-code');
-    const abortController = new AbortController();
-    const timeoutHandle = setTimeout(() => {
-      abortController.abort();
-      console.error('[claude-code] SDK timed out after 20 minutes — aborting');
-    }, SDK_TIMEOUT_MS);
-
-    try {
-      for await (const msg of query({
-        prompt,
-        abortController,
-        options: {
-          cwd: workDir,
-          allowedTools: ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'],
-        },
-      })) {
-        await handleSdkMessage(msg, notify);
-      }
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
+    // Spawn Claude Code CLI directly on Railway — stdio:'pipe' eliminates TTY buffering,
+    // setTimeout gives us a hard timeout we control (unlike E2B's black-box hang)
+    const CLAUDE_BIN = '/app/node_modules/@anthropic-ai/claude-code/cli.js';
+    await runClaudeCliSubprocess(CLAUDE_BIN, prompt, workDir, notify);
 
     // Push checkpoint branch to GitHub
     console.log(`[claude-code] Pushing branch ${checkpointBranch}...`);
@@ -128,29 +110,74 @@ export async function runClaudeCodeAgent(intent: string, notify?: NotifyFn): Pro
   }
 }
 
-async function handleSdkMessage(msg: any, notify?: NotifyFn): Promise<void> {
-  if (msg.type === 'assistant') {
-    const content = msg.message?.content;
-    if (!Array.isArray(content)) return;
-    for (const block of content) {
-      if (block.type === 'text' && block.text?.trim()) {
-        const text: string = block.text;
-        console.log('[claude-code] text:', text.slice(0, 200));
-        const truncated = text.length > 1500 ? text.slice(0, 1500) + '...' : text;
-        await notify?.(`\`\`\`\n${truncated}\n\`\`\``).catch(() => {});
-      } else if (block.type === 'tool_use') {
-        const inputStr = JSON.stringify(block.input ?? {});
-        const preview = inputStr.length > 120 ? inputStr.slice(0, 120) + '...' : inputStr;
-        console.log(`[claude-code] tool:${block.name} ${preview}`);
-        await notify?.(`\`[tool:${block.name}]\` ${preview}`).catch(() => {});
-      }
+async function runClaudeCliSubprocess(
+  cliBin: string,
+  prompt: string,
+  cwd: string,
+  notify?: NotifyFn,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('node', [cliBin, '--dangerously-skip-permissions', '-p', prompt], {
+      cwd,
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],  // pipe = no TTY, no buffering issues
+    });
+
+    const timeoutHandle = setTimeout(() => {
+      proc.kill('SIGTERM');
+      reject(new Error('Claude Code timed out after 20 minutes'));
+    }, SDK_TIMEOUT_MS);
+
+    let pendingNotify = Promise.resolve();
+    let buffer = '';
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function scheduleFlush() {
+      if (flushTimer || !notify) return;
+      flushTimer = setTimeout(async () => {
+        flushTimer = undefined;
+        const chunk = buffer;
+        buffer = '';
+        if (!chunk.trim()) return;
+        const truncated = chunk.length > 1800 ? chunk.slice(-1800) : chunk;
+        pendingNotify = pendingNotify
+          .then(() => notify(`\`\`\`\n${truncated}\n\`\`\``))
+          .catch(() => {});
+      }, 3_000);
     }
-  } else if (msg.type === 'result') {
-    const result: string = msg.result ?? '';
-    console.log('[claude-code] result:', result.slice(0, 200));
-  } else if (msg.type === 'system') {
-    console.log('[claude-code] system:', JSON.stringify(msg).slice(0, 200));
-  }
+
+    function onData(chunk: Buffer) {
+      const text = chunk.toString();
+      console.log('[claude-code]', text.trimEnd().slice(0, 300));
+      buffer += text;
+      scheduleFlush();
+    }
+
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
+
+    proc.on('close', (code) => {
+      clearTimeout(timeoutHandle);
+      clearTimeout(flushTimer);
+      // Flush any remaining buffer
+      if (buffer.trim() && notify) {
+        const truncated = buffer.length > 1800 ? buffer.slice(-1800) : buffer;
+        pendingNotify = pendingNotify
+          .then(() => notify(`\`\`\`\n${truncated}\n\`\`\``))
+          .catch(() => {});
+      }
+      pendingNotify.finally(() => {
+        if (code === 0 || code === null) resolve();
+        else reject(new Error(`Claude Code exited with code ${code}`));
+      });
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeoutHandle);
+      clearTimeout(flushTimer);
+      reject(err);
+    });
+  });
 }
 
 async function extractModifiedFiles(workDir: string): Promise<Array<{ path: string; content: string }>> {
