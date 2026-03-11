@@ -3,6 +3,7 @@ import { readInbox, readThread } from '../tools/gmail.js';
 import { think } from '../brain.js';
 import { queryKnowledge } from '../tools/knowledge.js';
 import { CHANNELS } from '../discord/channels.js';
+import { emitDashboardEvent } from '../dashboard/events.js';
 
 const NOISE_PATTERNS = [
   /no.?reply/i,
@@ -22,6 +23,7 @@ function isNoiseSender(from: string): boolean {
 
 export async function runInboxMonitor(discord: Client): Promise<void> {
   console.log('[inbox-monitor] Running...');
+  emitDashboardEvent({ type: 'inbox_scan', room: 'inbox', agent: 'inbox-monitor', task: 'Scanning Gmail inbox...' });
 
   let threads;
   try {
@@ -110,11 +112,13 @@ export async function runInboxMonitor(discord: Client): Promise<void> {
         await channel.send(`Say **"send it"** to send to ${thread.from}, or tell me what to change.\n*(Thread ID: ${thread.threadId})*`);
       }
 
+      emitDashboardEvent({ type: 'inbox_thread', room: 'inbox', agent: 'inbox-monitor', task: `Reply needed: "${thread.subject}" from ${thread.from}` });
       console.log(`[inbox-monitor] Surfaced reply thread: "${thread.subject}"`);
     } catch (err) {
       console.error(`[inbox-monitor] Error processing thread ${thread.threadId}:`, err);
     }
   }
 
+  emitDashboardEvent({ type: 'cron_complete', room: 'inbox', agent: 'inbox-monitor', task: 'Inbox scan complete' });
   console.log('[inbox-monitor] Done.');
 }

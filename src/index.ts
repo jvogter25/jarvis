@@ -10,6 +10,7 @@ import { runToolDiscovery } from './overnight/tool-discovery.js';
 import { runInboxMonitor } from './overnight/inbox-monitor.js';
 import { processQueue } from './tools/engineering-queue.js';
 import { isEmergencyLocked, restoreEmergencyLockState } from './tools/emergency.js';
+import { startWebSocketServer } from './dashboard/events.js';
 
 let isShuttingDown = false;
 export function getIsShuttingDown(): boolean { return isShuttingDown; }
@@ -36,6 +37,8 @@ async function main() {
   console.log('Jarvis starting...');
   try { console.log('APP contents:', fs.readdirSync('/app').join(', ')); } catch {}
   console.log('CWD:', process.cwd());
+
+  startWebSocketServer(Number(process.env.DASHBOARD_WS_PORT ?? 8080));
 
   const discord = createDiscordClient();
   await discord.login(process.env.DISCORD_TOKEN);

@@ -1,4 +1,5 @@
 import { Message as DiscordMessage, TextChannel, DMChannel, NewsChannel } from 'discord.js';
+import { emitDashboardEvent } from '../dashboard/events.js';
 import { getRecentMessages, saveMessage, getSystemPrompt, getChannelSummary, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
 import { maybeCondenseChannel } from '../memory/summarizer.js';
 import { think } from '../brain.js';
@@ -305,6 +306,12 @@ export async function handleMessage(msg: DiscordMessage) {
   if (!isSendable(msg.channel)) return;
 
   console.log(`Message received: "${msg.content.slice(0, 60)}"`);
+  emitDashboardEvent({
+    type: 'message_received',
+    room: 'office',
+    agent: 'discord',
+    task: msg.content.slice(0, 120),
+  });
 
   // ── Emergency kill switch ─────────────────────────────────────────────────
   if (detectKillPhrase(msg.content)) {
@@ -429,6 +436,13 @@ export async function handleMessage(msg: DiscordMessage) {
       try {
         const productionUrl = await promoteToProduction(pendingStaging.slug);
         await updateProject(pendingStaging.slug, { status: 'live', production_url: productionUrl });
+        emitDashboardEvent({
+          type: 'build_complete',
+          room: 'engineering',
+          agent: 'builder',
+          task: `Shipped ${pendingStaging.slug} → ${productionUrl}`,
+          data: { slug: pendingStaging.slug, url: productionUrl },
+        });
         await msg.channel.send(`🚀 **${pendingStaging.slug}** is live: ${productionUrl}`);
         await notifySlackEngineering(`🚀 *${pendingStaging.slug}* shipped to production: ${productionUrl}`);
       } catch (err) {

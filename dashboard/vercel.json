@@ -1,0 +1,5 @@
+{
+  "buildCommand": "node scripts/copy-sprites.mjs && npm run build:next",
+  "installCommand": "npm install",
+  "framework": "nextjs"
+}

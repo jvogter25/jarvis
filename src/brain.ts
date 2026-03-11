@@ -5,6 +5,7 @@ import { runShell } from './tools/shell.js';
 import { browseUrl, interactWithPage } from './tools/browser.js';
 import { searchWeb } from './tools/search.js';
 import { getInstalledTools } from './tools/registry.js';
+import { emitDashboardEvent, DashboardRoom } from './dashboard/events.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -267,7 +268,36 @@ export interface ThinkResult {
   toolResults: ToolCallResult[];
 }
 
+const TOOL_ROOM_MAP: Record<string, DashboardRoom> = {
+  build_app: 'engineering',
+  preview_app: 'engineering',
+  self_modify_request: 'engineering',
+  get_design_suggestions: 'design',
+  search_knowledge: 'office',
+  deploy_html: 'engineering',
+  run_shell: 'engineering',
+  browse_web: 'research',
+  search_web: 'research',
+  playwright: 'research',
+  create_project: 'office',
+  draft_email: 'inbox',
+  send_email: 'inbox',
+  check_inbox: 'inbox',
+  read_tweet: 'research',
+};
+
 async function executeTool(name: string, input: Record<string, unknown>, notify?: (msg: string) => Promise<void>): Promise<ToolCallResult> {
+  emitDashboardEvent({
+    type: 'tool_call',
+    room: TOOL_ROOM_MAP[name] ?? 'office',
+    agent: name,
+    task: typeof input.intent === 'string'
+      ? (input.intent as string).slice(0, 120)
+      : typeof input.description === 'string'
+        ? (input.description as string).slice(0, 120)
+        : JSON.stringify(input).slice(0, 120),
+  });
+
   switch (name) {
     case 'deploy_html': {
       const html = input.html as string;
@@ -520,6 +550,13 @@ export async function think(
   options: ThinkOptions = {}
 ): Promise<ThinkResult> {
   const { model = 'sonnet', noTools = false, maxTokens = 8192 } = options;
+
+  emitDashboardEvent({
+    type: 'agent_active',
+    room: 'office',
+    agent: `brain:${model}`,
+    task: userMessage.slice(0, 120),
+  });
   const modelId = MODEL_IDS[model];
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
@@ -560,6 +597,7 @@ export async function think(
     if (response.stop_reason !== 'tool_use') {
       // Done — extract text response
       const textBlock = response.content.find(b => b.type === 'text');
+      emitDashboardEvent({ type: 'agent_idle', room: 'office', agent: `brain:${model}` });
       return {
         text: textBlock?.type === 'text' ? textBlock.text : '',
         toolResults: allToolResults,
@@ -586,5 +624,6 @@ export async function think(
     messages.push({ role: 'user', content: toolResultContent });
   }
 
+  emitDashboardEvent({ type: 'agent_idle', room: 'office', agent: `brain:${model}` });
   return { text: 'Tool execution limit reached.', toolResults: allToolResults };
 }
