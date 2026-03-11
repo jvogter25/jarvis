@@ -85,6 +85,9 @@ export async function runClaudeCodeAgent(intent: string, notify?: NotifyFn): Pro
     await execAsync(`chown -R clauderunner ${workDir}`);
     await runClaudeCliSubprocess(CLAUDE_BIN, prompt, workDir, runnerUid, notify);
 
+    // Trust the workDir as root — clauderunner wrote commits, root now reads/pushes
+    await execAsync(`git config --global --add safe.directory ${workDir}`).catch(() => {});
+
     // Push checkpoint branch to GitHub
     console.log(`[claude-code] Pushing branch ${checkpointBranch}...`);
     await execAsync(
