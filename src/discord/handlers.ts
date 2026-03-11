@@ -11,6 +11,47 @@ import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, 
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
 import { processTrainingMaterial } from '../tools/knowledge.js';
+import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+function getVersionInfo(): string {
+  // Read app name and version from package.json
+  let appName = 'jarvis';
+  let appVersion = 'unknown';
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8'));
+    appName = pkg.name ?? appName;
+    appVersion = pkg.version ?? appVersion;
+  } catch {}
+
+  // Commit hash: prefer Railway env var, fall back to git CLI
+  let commitHash = process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null;
+  if (!commitHash) {
+    try {
+      commitHash = execSync('git rev-parse --short HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+    } catch {}
+  }
+
+  const env = process.env.NODE_ENV ?? 'production';
+  const nodeVersion = process.version;
+  const branch = process.env.RAILWAY_GIT_BRANCH ?? (() => {
+    try { return execSync('git rev-parse --abbrev-ref HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim(); } catch { return null; }
+  })();
+
+  const lines = [
+    `**${appName}** v${appVersion}`,
+    `Environment: \`${env}\``,
+    `Node.js: \`${nodeVersion}\``,
+    branch ? `Branch: \`${branch}\`` : null,
+    commitHash ? `Commit: \`${commitHash}\`` : null,
+  ].filter(Boolean);
+
+  return lines.join('\n');
+}
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -403,6 +444,12 @@ export async function handleMessage(msg: DiscordMessage) {
 
   // Overnight mode deactivation
   const lower = msg.content.toLowerCase().trim();
+
+  // Version command: "version" or "/version"
+  if (lower === 'version' || lower === '/version') {
+    await msg.channel.send(getVersionInfo());
+    return;
+  }
   if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
     deactivateOvernightMode();
     await msg.channel.send('Overnight mode deactivated. Builds can now go to production again.');
