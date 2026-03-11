@@ -1,4 +1,6 @@
 import { Message as DiscordMessage, TextChannel, DMChannel, NewsChannel } from 'discord.js';
+import { execSync } from 'child_process';
+import { createRequire } from 'module';
 import { getRecentMessages, saveMessage, getSystemPrompt, getChannelSummary, updateProject, getProjectConfigByChannelId, ProjectConfig } from '../memory/supabase.js';
 import { maybeCondenseChannel } from '../memory/summarizer.js';
 import { think } from '../brain.js';
@@ -11,6 +13,21 @@ import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, 
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
 import { processTrainingMaterial } from '../tools/knowledge.js';
+
+const _require = createRequire(import.meta.url);
+
+function getVersionInfo(): string {
+  const pkg = _require('../../package.json') as { version: string };
+  const jarvisVersion = pkg.version;
+  const nodeVersion = process.version;
+  let gitHash = 'unknown';
+  try {
+    gitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    // not in a git repo or git not available
+  }
+  return `**Jarvis v${jarvisVersion}** | Node ${nodeVersion} | commit \`${gitHash}\``;
+}
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -401,8 +418,14 @@ export async function handleMessage(msg: DiscordMessage) {
     return;
   }
 
-  // Overnight mode deactivation
+  // Version command
   const lower = msg.content.toLowerCase().trim();
+  if (lower === 'version' && isGlobalJarvis) {
+    await msg.channel.send(getVersionInfo());
+    return;
+  }
+
+  // Overnight mode deactivation
   if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
     deactivateOvernightMode();
     await msg.channel.send('Overnight mode deactivated. Builds can now go to production again.');
