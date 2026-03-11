@@ -6,10 +6,13 @@ An always-on AI orchestrator that runs on Railway, accessible via Discord. Give 
 
 - **Talks to you via Discord** — respond from your phone anywhere
 - **Builds and ships code** — pushes to GitHub, Railway redeploys automatically
-- **Self-improves** — ask it to add new tools or capabilities and it writes, reviews, and deploys the code itself
+- **Self-modifies on command** — say "implement a version command" and it writes the code, pushes a branch, opens a PR, and waits for your `ship it`
+- **Approval loop** — coding progress logs go to #engineering; approval prompts go to #jarvis; one `ship it` executes the PR
 - **Monitors your inbox** — scores emails, drafts replies in your voice for approval
 - **Researches opportunities** — scrapes Reddit, HN, Indie Hackers for validated product ideas
 - **Runs overnight** — rewrites its own system prompt nightly based on what worked and what didn't
+- **Knowledge base** — feed it domain material in #training and it extracts + stores insights for future reasoning
+- **Multi-project workspace** — each project gets its own Discord category, GitHub repo, system prompt, and morning brief
 
 ## Architecture
 
@@ -29,12 +32,14 @@ GitHub (jvogter25/jarvis)
 
 | Channel | Purpose |
 |---|---|
-| `#jarvis` | Talk to Jarvis directly |
+| `#jarvis` | Talk to Jarvis directly — approval prompts always come here |
 | `#morning-brief` | Daily overnight summary posted at 7am |
 | `#research` | Validated product opportunities |
-| `#engineering` | Build updates and PRs |
+| `#engineering` | Build progress logs, PRs, staging URLs |
 | `#marketing` | Copy and launch plans |
 | `#overnight-log` | What Jarvis worked on overnight |
+| `#training` | Feed domain knowledge: `sales: [url or text]`, `marketing: [text]`, etc. |
+| `#design-elements` | Drop screenshots or URLs to update the design library |
 
 ## Setup (for new instances)
 
@@ -141,9 +146,19 @@ npm run dev            # tsx watch mode, hot reload
 
 Jarvis can write and deploy new tools himself. In Discord:
 
-> "Build me a tool that posts a weather summary to #morning-brief every day"
+> "implement a version command"
+> "add a ping command"
+> "build a search feature"
+> "create a webhook handler"
 
-He'll generate the code, have Opus review it, show you a diff, and ask for approval. Safe changes push directly to main. Changes to core files (brain.ts, handlers.ts, etc.) go through a PR first.
+He'll plan the task, clone the repo into a sandbox, run Claude Code to write the implementation, push a branch, and ask for approval in #jarvis. Say `ship it` and he opens a PR on GitHub. Safe new-file additions push directly to main; edits to core files go through a PR first.
+
+**Channel routing:**
+- Progress logs (cloning, planning, done) → `#engineering`
+- Approval prompt ("Say **ship it** when ready") → `#jarvis`
+- `ship it` in #jarvis → PR opened + Slack notification
+
+**Core files** (brain.ts, handlers.ts, index.ts, builder.ts, supabase.ts, trainer.ts, registry.ts, channels.ts) always go through a PR — never direct-pushed.
 
 ## Project Structure
 
@@ -183,9 +198,10 @@ src/
 
 | Wave | Features |
 |---|---|
-| 1-3 | Discord bot, Claude brain, Supabase memory, 61-agent manifest |
-| 4 | Research loop (Reddit, HN, Indie Hackers) |
-| 5 | GitHub integration, self-modify pipeline |
-| 6 | Overnight trainer, morning brief, tool discovery |
-| 7 | Knowledge base, training channel ingestion |
-| 8 | Gmail + Calendar integration, inbox monitor |
+| 1–3 | Discord bot, Claude brain, Supabase memory, 61-agent manifest |
+| 4 | Research loop (Reddit, HN, Brave Search, Product Hunt, IndieHackers, G2) |
+| 5 | GitHub integration, self-modify pipeline (Opus writes + reviews all code) |
+| 6 | Overnight trainer (nightly system prompt rewrite), morning brief, weekly tool discovery |
+| 7 | Knowledge base + #training channel, multi-project workspaces, E2B preview-before-deploy |
+| 8 | Gmail + Calendar integration, inbox monitor, email draft approval flow |
+| 9 | Self-modify approval loop fixed — natural coding requests ("implement X command", "add Y feature") correctly route through Claude Code → branch → PR → `ship it` approval; channel routing cleaned up (#engineering = logs, #jarvis = approvals) |
