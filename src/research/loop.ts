@@ -6,6 +6,7 @@ import {
 import { scorePost, ScoredOpportunity } from './scorer.js';
 import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted, hasOpportunityByTitle } from '../memory/supabase.js';
 import { CHANNELS } from '../discord/channels.js';
+import { MANUAL_QUEUE } from './manual-queue.js';
 
 export async function runResearchLoop(discord: Client) {
   console.log('Research loop: starting scrape...');
@@ -19,7 +20,7 @@ export async function runResearchLoop(discord: Client) {
     scrapeG2Reviews(),
   ]);
 
-  const allPosts = [...redditPosts, ...hnPosts, ...bravePosts, ...phPosts, ...ihPosts, ...g2Posts];
+  const allPosts = [...redditPosts, ...hnPosts, ...bravePosts, ...phPosts, ...ihPosts, ...g2Posts, ...MANUAL_QUEUE];
   console.log(`Research loop: scoring ${allPosts.length} posts...`);
 
   const scored: ScoredOpportunity[] = [];
