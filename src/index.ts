@@ -38,7 +38,8 @@ async function main() {
   try { console.log('APP contents:', fs.readdirSync('/app').join(', ')); } catch {}
   console.log('CWD:', process.cwd());
 
-  startWebSocketServer(Number(process.env.DASHBOARD_WS_PORT ?? 8080));
+  // Use Railway's assigned PORT — Railway only exposes one port per service.
+  startWebSocketServer(Number(process.env.PORT ?? process.env.DASHBOARD_WS_PORT ?? 8080));
 
   const discord = createDiscordClient();
   await discord.login(process.env.DISCORD_TOKEN);

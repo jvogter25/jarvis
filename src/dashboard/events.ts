@@ -1,3 +1,4 @@
+import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 
 export type DashboardRoom = 'office' | 'engineering' | 'research' | 'design' | 'inbox';
@@ -34,7 +35,14 @@ let wss: WebSocketServer | null = null;
 const clients = new Set<WebSocket>();
 
 export function startWebSocketServer(port = 8080): void {
-  wss = new WebSocketServer({ port, host: '0.0.0.0' });
+  // Attach to an HTTP server so Railway can route to it via the single exposed PORT.
+  // A plain WS server on a second port is unreachable from outside Railway.
+  const httpServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Jarvis OK');
+  });
+
+  wss = new WebSocketServer({ server: httpServer });
 
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -48,7 +56,9 @@ export function startWebSocketServer(port = 8080): void {
     console.error('[dashboard] WebSocket server error:', err);
   });
 
-  console.log(`[dashboard] WebSocket server listening on ws://0.0.0.0:${port}`);
+  httpServer.listen(port, '0.0.0.0', () => {
+    console.log(`[dashboard] WebSocket server listening on ws://0.0.0.0:${port}`);
+  });
 }
 
 export function emitDashboardEvent(event: Omit<DashboardEvent, 'timestamp'>): void {
