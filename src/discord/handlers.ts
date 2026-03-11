@@ -37,8 +37,7 @@ async function runSelfModifyInBackground(
     }
     // Key by #jarvis so Jake's "ship it" there is found by handleMessage
     pendingPRApproval.set(CHANNELS.JARVIS, { plan: result.plan });
-    await reportChannel.send(result.message);  // summary to #engineering
-    // Tell Jake in #jarvis where to approve
+    // Approval prompt to #jarvis only — #engineering already got progress logs via notify
     const { getDiscordClient } = await import('./client.js');
     const dc = getDiscordClient();
     const jarvisChannel = dc ? await dc.channels.fetch(CHANNELS.JARVIS).catch(() => null) : null;
@@ -423,7 +422,10 @@ export async function handleMessage(msg: DiscordMessage) {
 
   // Self-modify fast path: detect coding task requests and fire background immediately
   // so Jarvis stays responsive while Claude Code runs (10-15 min).
-  const explicitSelfModify = /\b(?:add .* integration|add .* tool|install .* package|change .* behavior|implement .* feature|self.?modify)\b/i.test(msg.content);
+  const CODING_TASK = /\b(?:add|implement|create|build|make|write)\b.{1,80}\b(?:command|feature|tool|handler|function|plugin|integration|endpoint|route|webhook)\b/i;
+  const explicitSelfModify =
+    /\b(?:add .* integration|add .* tool|install .* package|change .* behavior|implement .* feature|self.?modify)\b/i.test(msg.content)
+    || CODING_TASK.test(msg.content);
   if (explicitSelfModify && isGlobalJarvis && !isEmergencyLocked()) {
     const { getDiscordClient } = await import('./client.js');
     const discord = getDiscordClient();
@@ -516,7 +518,7 @@ export async function handleMessage(msg: DiscordMessage) {
       }
       if (toolResult.selfModifyProposal) {
         // Always key by #jarvis so Jake's "ship it" there is caught by handleMessage.
-        // Post summary to #engineering for visibility, approval prompt to #jarvis.
+        // Post full details to #engineering; send a short redirect to #jarvis.
         pendingPRApproval.set(CHANNELS.JARVIS, { plan: toolResult.selfModifyProposal.plan });
         const { getDiscordClient } = await import('./client.js');
         const discord = getDiscordClient();
@@ -526,7 +528,7 @@ export async function handleMessage(msg: DiscordMessage) {
             await (engChannelRaw as SendableChannel).send(toolResult.selfModifyProposal.message);
           }
         }
-        await msg.channel.send(toolResult.selfModifyProposal.message);
+        await msg.channel.send("Done — check #engineering for details. Say **ship it** here when ready.");
       }
       if (toolResult.previewResult) {
         pendingPreviewApproval.set(msg.channelId, toolResult.previewResult);
