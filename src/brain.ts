@@ -232,6 +232,17 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: [],
     },
   },
+  fetch_tweet: {
+    name: 'fetch_tweet',
+    description: 'Fetch the full text of a tweet and its thread context from a Twitter/X URL. Use whenever Jake drops a Twitter or X link into Discord so you can read the tweet without needing Jake to paste the content. Returns the tweet text, author, timestamp, and any thread replies.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        url: { type: 'string', description: 'The Twitter or X URL of the tweet, e.g. https://x.com/user/status/1234567890' },
+      },
+      required: ['url'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -458,6 +469,16 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
         return { toolName: name, output: `${threads.length} unread thread(s):\n\n${formatted}` };
       } catch (err) {
         return { toolName: name, output: `Inbox check failed: ${(err as Error).message}` };
+      }
+    }
+
+    case 'fetch_tweet': {
+      const { fetchTweet, formatTweetResult } = await import('./tools/twitter.js');
+      try {
+        const result = await fetchTweet(input.url as string);
+        return { toolName: name, output: formatTweetResult(result) };
+      } catch (err) {
+        return { toolName: name, output: `Tweet fetch failed: ${(err as Error).message}` };
       }
     }
 
