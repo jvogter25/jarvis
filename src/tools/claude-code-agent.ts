@@ -4,6 +4,7 @@ import { planCodingTask } from './task-planner.js';
 
 const SANDBOX_LIFETIME_MS = 60 * 60 * 1000;  // E2B hard cap: 1 hour max
 const WATCHDOG_TRIGGER_MS = 45 * 60 * 1000;  // checkpoint at T+45min (before E2B kills sandbox)
+const DIAGNOSTICS_ENABLED = true;
 
 // Global registry so emergency kill switch can terminate any active sandbox
 const activeSandboxes = new Set<InstanceType<typeof Sandbox>>();
@@ -16,6 +17,25 @@ export async function killAllSandboxes(): Promise<number> {
   activeSandboxes.clear();
   console.log(`[emergency] Killed ${count} active sandbox(es).`);
   return count;
+}
+
+async function runDiag(
+  sandbox: Sandbox,
+  stageName: string,
+  cmd: string,
+  timeoutMs: number,
+  envs?: Record<string, string>,
+): Promise<string> {
+  try {
+    const r = await sandbox.commands.run(cmd, { timeoutMs, envs });
+    const out = ((r.stdout ?? '') + (r.stderr ?? '')).trim();
+    console.log(`[DIAG:${stageName}]`, out.slice(0, 500));
+    return out;
+  } catch (err) {
+    const msg = `FAILED: ${(err as Error).message}`;
+    console.log(`[DIAG:${stageName}]`, msg);
+    return msg;
+  }
 }
 
 export interface ClaudeCodeResult {
@@ -104,6 +124,7 @@ async function runSingleSubtask(
   let lastNotifyTime = 0;
   let notifyTimer: ReturnType<typeof setTimeout> | undefined;
   const startTime = Date.now();
+  const diagReport: Record<string, string> = {};
 
   async function flushToDiscord(force = false) {
     if (!notify || !outputBuffer.trim()) return;
@@ -134,6 +155,99 @@ async function runSingleSubtask(
     activeSandboxes.add(sandbox);
     const instructions = buildClaudeCodeInstructions(subtask, OWNER, REPO);
     await sandbox.files.write('/home/user/TASK.md', instructions);
+
+    // Stage 1 — OS/Tools Audit
+    if (DIAGNOSTICS_ENABLED) {
+      diagReport['os'] = await runDiag(sandbox, 'os', 'uname -a', 10_000);
+      diagReport['tools'] = await runDiag(sandbox, 'tools', 'which curl git node npm stdbuf tee 2>&1 || true', 10_000);
+      diagReport['versions'] = await runDiag(sandbox, 'versions', 'node --version 2>&1; npm --version 2>&1', 10_000);
+      diagReport['disk'] = await runDiag(sandbox, 'disk', 'df -h /home/user 2>/dev/null | tail -1', 10_000);
+    }
+
+    // Stage 2 — Setup Verification
+    if (DIAGNOSTICS_ENABLED) {
+      diagReport['claude_path'] = await runDiag(sandbox, 'claude_path', 'which claude; echo "exit:$?"', 15_000);
+      diagReport['claude_version'] = await runDiag(sandbox, 'claude_version', 'claude --version 2>&1', 20_000, { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! });
+      diagReport['clone_ok'] = await runDiag(sandbox, 'clone_ok', `ls ${REPO_PATH}/package.json 2>&1 && echo "CLONE_OK"`, 10_000);
+      diagReport['npm_install_ok'] = await runDiag(sandbox, 'npm_install_ok', `ls ${REPO_PATH}/node_modules/.bin/tsc 2>&1 && echo "TSC_BIN_OK"`, 10_000);
+      diagReport['stdbuf_exists'] = await runDiag(sandbox, 'stdbuf_exists', 'stdbuf --version 2>&1 || stdbuf --help 2>&1 | head -2 || echo "STDBUF_MISSING"', 10_000);
+    }
+
+    // Stage 3 — API Key Validation (HTTP 200 = valid, 401 = bad key, 403 = no access)
+    if (DIAGNOSTICS_ENABLED) {
+      diagReport['api_key_len'] = await runDiag(sandbox, 'api_key_len', `echo "Key length: ${process.env.ANTHROPIC_API_KEY?.length ?? 0}"`, 5_000);
+      diagReport['api_auth'] = await runDiag(
+        sandbox, 'api_auth',
+        `HTTP_STATUS=$(curl -s -o /tmp/api-resp.txt -w "%{http_code}" -H "x-api-key: ${process.env.ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" https://api.anthropic.com/v1/models) && echo "HTTP_STATUS:$HTTP_STATUS" && head -c 100 /tmp/api-resp.txt 2>/dev/null || echo "(no body)"`,
+        20_000,
+      );
+    }
+
+    // Stage 4 — E2B Streaming Callback Test (tests if onStdout ever fires at Node.js layer)
+    if (DIAGNOSTICS_ENABLED) {
+      let streamingCallbackFired = false;
+      const streamTest = await sandbox.commands.run(
+        'echo "STREAM_TEST_1" && sleep 0.5 && echo "STREAM_TEST_2"',
+        {
+          timeoutMs: 10_000,
+          onStdout: (_chunk: string) => { streamingCallbackFired = true; },
+          onStderr: (_chunk: string) => { streamingCallbackFired = true; },
+        },
+      ).catch((err: Error) => { console.log('[DIAG:stream_callback] FAILED:', err.message); return null; });
+      const streamOut = streamTest ? ((streamTest.stdout ?? '') + (streamTest.stderr ?? '')).trim() : 'command failed';
+      diagReport['stream_callback'] = `fired=${streamingCallbackFired} stdout="${streamOut.slice(0, 100)}"`;
+      console.log('[DIAG:stream_callback]', diagReport['stream_callback']);
+    }
+
+    // Stage 5 — stdbuf + tee Functional Test (exact pattern used for Claude Code)
+    if (DIAGNOSTICS_ENABLED) {
+      diagReport['stdbuf_tee'] = await runDiag(sandbox, 'stdbuf_tee',
+        'stdbuf -oL -eL echo "STDBUF_WORKS" | tee /tmp/stdbuf-test.txt && cat /tmp/stdbuf-test.txt',
+        15_000,
+      );
+    }
+
+    // Stage 6 — Claude Code Smoke Test (5s timeout, proves it can make API calls)
+    if (DIAGNOSTICS_ENABLED) {
+      const smokeStart = Date.now();
+      diagReport['smoke_test'] = await runDiag(
+        sandbox, 'smoke_test',
+        `timeout 5 claude --dangerously-skip-permissions -p "Reply with just: OK" 2>&1 | head -3 || echo "SMOKE_TIMEOUT_OR_FAIL"`,
+        20_000,
+        { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY! },
+      );
+      diagReport['smoke_test'] += ` (${Date.now() - smokeStart}ms)`;
+    }
+
+    // Consolidated Discord diagnostics summary (fires before Claude Code starts)
+    if (DIAGNOSTICS_ENABLED && notify) {
+      const toolsLine = diagReport['tools'] ?? '';
+      const toolCheck = (t: string) => toolsLine.includes(`/${t}`) ? '✓' : '✗';
+      const apiLine = diagReport['api_auth'] ?? '';
+      const httpMatch = apiLine.match(/HTTP_STATUS:(\d+)/);
+      const httpStatus = httpMatch ? httpMatch[1] : '???';
+      const apiStatusEmoji = httpStatus === '200' ? '✓ valid' : httpStatus === '401' ? '✗ invalid key' : httpStatus === '403' ? '✗ no access' : httpStatus.startsWith('5') ? '✗ API down' : `? HTTP ${httpStatus}`;
+      const streamOk = (diagReport['stream_callback'] ?? '').includes('fired=true') ? '✓ callbacks fire' : '✗ callbacks SILENT';
+      const stdbufOk = (diagReport['stdbuf_tee'] ?? '').includes('STDBUF_WORKS') ? '✓ working' : '✗ BROKEN';
+      const smokeRaw = diagReport['smoke_test'] ?? '';
+      const smokeOk = smokeRaw.includes('SMOKE_TIMEOUT_OR_FAIL') ? '✗ timed out/failed' : smokeRaw.includes('FAILED:') ? `✗ ${smokeRaw.slice(0, 60)}` : '✓ responded';
+      const cloneOk = (diagReport['clone_ok'] ?? '').includes('CLONE_OK') ? '✓' : '✗';
+      const tscOk = (diagReport['npm_install_ok'] ?? '').includes('TSC_BIN_OK') ? '✓' : '✗';
+      const claudePath = (diagReport['claude_path'] ?? '').includes('/') ? '✓' : '✗';
+
+      await notify([
+        `🔬 **Sandbox Diagnostics**${subtaskLabel}`,
+        `**OS:** ${(diagReport['os'] ?? '').slice(0, 80)}`,
+        `**Tools:** curl${toolCheck('curl')} git${toolCheck('git')} node${toolCheck('node')} npm${toolCheck('npm')} stdbuf${toolCheck('stdbuf')} tee${toolCheck('tee')} claude${claudePath}`,
+        `**Versions:** ${(diagReport['versions'] ?? '').replace(/\n/g, ', ').slice(0, 80)}`,
+        `**Clone:** ${cloneOk}  **npm install (tsc):** ${tscOk}`,
+        `**API Key:** ${(diagReport['api_key_len'] ?? '').replace('Key length: ', '')} chars — HTTP ${httpStatus} ${apiStatusEmoji}`,
+        `**E2B Streaming:** ${streamOk}`,
+        `**stdbuf+tee:** ${stdbufOk}`,
+        `**Smoke test:** ${smokeOk}`,
+        `**Disk:** ${(diagReport['disk'] ?? '').slice(0, 80)}`,
+      ].join('\n')).catch(() => {});
+    }
 
     if (notify) {
       await notify(`⚙️ **Claude Code starting**${subtaskLabel} — pre-loaded ${subtask.relevantFiles.length} file(s). Updates every ~10s.`).catch(() => {});
@@ -203,11 +317,21 @@ async function runSingleSubtask(
       pollTimer = setInterval(async () => {
         try {
           const elapsed = Math.floor((Date.now() - startTime) / 60_000);
-          const tail = await sandbox!.commands.run(
-            'tail -20 /home/user/claude-output.log 2>/dev/null || echo "(no output yet)"',
-            { timeoutMs: 5_000 }
-          );
-          await notify?.(`⏱️ T+${elapsed}m poll:\n\`\`\`\n${tail.stdout?.slice(0, 400)}\n\`\`\``).catch(() => {});
+          const pollCmd = [
+            'echo "=== PROCESS ==="',
+            `ps aux | grep -E '[c]laude|[n]ode' | head -5 || echo "(no claude process)"`,
+            'echo "=== LOG FILE ==="',
+            'ls -la /home/user/claude-output.log 2>/dev/null || echo "(log not created yet)"',
+            'wc -l /home/user/claude-output.log 2>/dev/null || echo "(no lines)"',
+            'echo "=== TAIL ==="',
+            'tail -15 /home/user/claude-output.log 2>/dev/null || echo "(empty)"',
+            'echo "=== DISK ==="',
+            'df -h /home/user 2>/dev/null | tail -1',
+          ].join(' && ');
+          const poll = await sandbox!.commands.run(pollCmd, { timeoutMs: 10_000 });
+          const pollOut = ((poll.stdout ?? '') + (poll.stderr ?? '')).slice(0, 1200);
+          console.log(`[claude-code] T+${elapsed}m poll:`, pollOut.slice(0, 400));
+          await notify?.(`⏱️ T+${elapsed}m poll:\n\`\`\`\n${pollOut.slice(0, 1000)}\n\`\`\``).catch(() => {});
         } catch { /* sandbox may be torn down */ }
       }, 60_000);
 
@@ -227,6 +351,23 @@ async function runSingleSubtask(
 
       console.log(`[claude-code] Exited with code ${claudeResult.exitCode}`);
       if (claudeResult.stderr) console.log(`[claude-code] stderr: ${claudeResult.stderr.slice(0, 500)}`);
+
+      if (DIAGNOSTICS_ENABLED) {
+        const postBytes = await runDiag(sandbox!, 'post_bytes', 'cat /home/user/claude-output.log | wc -c 2>/dev/null || echo "0"', 10_000);
+        const postDone = await runDiag(sandbox!, 'post_done_txt', 'cat /home/user/done.txt 2>/dev/null || echo "(done.txt not written)"', 5_000);
+        const postGitLog = await runDiag(sandbox!, 'post_git_log', `git -C ${REPO_PATH} log --oneline -5 2>&1`, 15_000);
+        const postGitDiff = await runDiag(sandbox!, 'post_git_diff', `git -C ${REPO_PATH} diff --name-only origin/main...HEAD 2>&1`, 15_000);
+
+        if (notify) {
+          await notify([
+            `📋 **Post-run diagnostics** (exit code: ${claudeResult.exitCode})`,
+            `**Output bytes:** ${postBytes}`,
+            `**done.txt:** ${postDone.slice(0, 100)}`,
+            `**Git log (last 5):**\n\`\`\`\n${postGitLog.slice(0, 400)}\n\`\`\``,
+            `**Changed files:**\n\`\`\`\n${postGitDiff.slice(0, 400)}\n\`\`\``,
+          ].join('\n')).catch(() => {});
+        }
+      }
 
       if (claudeResult.exitCode !== 0) {
         throw new Error(`Claude Code exited with code ${claudeResult.exitCode}: ${claudeResult.stderr?.slice(0, 500)}`);
