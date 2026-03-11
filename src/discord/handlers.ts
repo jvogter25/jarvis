@@ -11,6 +11,7 @@ import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, 
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
 import { processTrainingMaterial } from '../tools/knowledge.js';
+import { handleSetupAgents } from '../commands/setupAgents.js';
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -389,6 +390,13 @@ export async function handleMessage(msg: DiscordMessage) {
       return;
     }
     // Conversational message — fall through with staging state preserved
+  }
+
+  // !setup-agents [--dry-run]
+  if (/^!setup-agents(\s|$)/i.test(msg.content)) {
+    const dryRun = /--dry-run/i.test(msg.content);
+    await handleSetupAgents(msg, dryRun);
+    return;
   }
 
   // Engineering queue: "add to queue: X" or "queue this: X"
