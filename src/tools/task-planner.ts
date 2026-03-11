@@ -9,26 +9,12 @@ export interface SubTask {
   total: number;
   title: string;
   intent: string;
-  relevantFiles: Array<{ path: string; content: string }>;
+  relevantFiles: string[];  // file paths only — Claude reads them itself
   fromBranch: string;  // which branch to clone from for this subtask
 }
 
 const MAX_RELEVANT_FILES = 8;
-const MAX_FILE_LINES = 300;  // truncate large files to keep prompt manageable
 const SRC_DIR = '/app/src';
-
-function readLocalFile(filePath: string): string {
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const lines = content.split('\n');
-    if (lines.length > MAX_FILE_LINES) {
-      return lines.slice(0, MAX_FILE_LINES).join('\n') + `\n\n... [truncated at ${MAX_FILE_LINES} lines]`;
-    }
-    return content;
-  } catch {
-    return '';
-  }
-}
 
 function getAllSourceFiles(): string[] {
   const files: string[] = [];
@@ -51,9 +37,9 @@ function getAllSourceFiles(): string[] {
 export async function planCodingTask(intent: string): Promise<SubTask[]> {
   const allFiles = getAllSourceFiles();
 
-  // If no local source files (local dev without /app), return single task with no pre-loaded files
+  // If no local source files (local dev without /app), return single task with no hints
   if (allFiles.length === 0) {
-    console.log('[task-planner] No local source files found at /app/src — skipping file pre-load');
+    console.log('[task-planner] No local source files found at /app/src — skipping file hint');
     return [{
       index: 0,
       total: 1,
@@ -109,17 +95,9 @@ Return ONLY valid JSON in this exact format — no markdown, no explanation:
     return [{ index: 0, total: 1, title: 'Full task', intent, relevantFiles: [], fromBranch: 'main' }];
   }
 
-  // Load the relevant file contents from local disk
-  const relevantFiles: Array<{ path: string; content: string }> = [];
-  for (const relativePath of (plan.relevantFiles ?? []).slice(0, MAX_RELEVANT_FILES)) {
-    const absolutePath = path.join('/app', relativePath);
-    const content = readLocalFile(absolutePath);
-    if (content) {
-      relevantFiles.push({ path: relativePath, content });
-    }
-  }
+  const relevantFiles = (plan.relevantFiles ?? []).slice(0, MAX_RELEVANT_FILES);
 
-  console.log(`[task-planner] Loaded ${relevantFiles.length} relevant files, ${plan.subtasks?.length ?? 1} subtask(s)`);
+  console.log(`[task-planner] ${relevantFiles.length} relevant file hint(s), ${plan.subtasks?.length ?? 1} subtask(s)`);
 
   const subtasks = plan.subtasks ?? [{ title: 'Full task', intent }];
   return subtasks.map((st, i) => ({

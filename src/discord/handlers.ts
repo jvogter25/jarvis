@@ -482,6 +482,7 @@ export async function handleMessage(msg: DiscordMessage) {
     const engChannel = (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel']))
       ? engChannelRaw as SendableChannel
       : msg.channel;  // fallback if engineering unavailable
+    console.log('[notify] Engineering channel:', CHANNELS.ENGINEERING, '| fallback?', !engChannelRaw);
     const notify = (m: string) => engChannel.send(m).then(() => {});
     const result = await think(effectiveSystemPrompt, history, msg.content, { notify });
     stopTyping();
