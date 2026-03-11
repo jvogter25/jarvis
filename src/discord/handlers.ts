@@ -443,6 +443,29 @@ export async function handleMessage(msg: DiscordMessage) {
     // Conversational message — fall through with staging state preserved
   }
 
+  // Override cron — immediately execute a task, bypassing the queue and schedule.
+  // Triggers: "override cron, [task]" | "do this now: [task]" | "priority: [task]" | "drop everything and [task]"
+  const overrideMatch = msg.content.match(
+    /^(?:override cron[,:\s]+|do this now[:\s]+|priority[:\s]+|drop everything and\s+)(.+)/i
+  );
+  if (overrideMatch && isGlobalJarvis && !isEmergencyLocked()) {
+    const task = overrideMatch[1].trim();
+    const { getDiscordClient } = await import('./client.js');
+    const discord = getDiscordClient();
+    const engChannelRaw = discord
+      ? await discord.channels.fetch(CHANNELS.ENGINEERING).catch(() => null)
+      : null;
+    if (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel'])) {
+      const engChannel = engChannelRaw as SendableChannel;
+      await msg.channel.send(`Overriding schedule — running now. Progress in #engineering.`);
+      await saveMessage(msg.channelId, 'user', msg.content);
+      runSelfModifyInBackground(task, engChannel).catch(err =>
+        console.error('[override-cron] Failed:', err)
+      );
+      return;
+    }
+  }
+
   // !setup-agents [--dry-run]
   if (/^!setup-agents(\s|$)/i.test(msg.content)) {
     const dryRun = /--dry-run/i.test(msg.content);

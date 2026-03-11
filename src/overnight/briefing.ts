@@ -36,7 +36,7 @@ ${opportunities.slice(0, 3).map(o => `- [${o.score}/100] ${o.title}: ${o.summary
 
   try {
     const briefing = (await think(
-      'You are Jarvis. Write a concise morning briefing for Jake. Include: what happened recently, top 3 priorities for today, any opportunities to review. Be direct, no fluff. Use markdown headers.',
+      'You are Jarvis. Write a concise morning briefing for Jake. Include: what happened recently, top 3 priorities for today, any opportunities to review. Be direct, no fluff. Use markdown headers.\n\nCRITICAL: Only mention staging deploys, builds, PRs, or projects that are explicitly present in the data provided to you. Do NOT invent, hallucinate, or assume any projects, builds, or deploys exist unless they appear in the conversation history or opportunities list above. If no builds are in progress, say nothing about builds.',
       [],
       context
     )).text;

@@ -59,6 +59,21 @@ async function main() {
 
   const TZ = 'America/Los_Angeles';
 
+  // Pre-research warning: 10 min before each research window (11:50pm, 5:50am, 11:50am, 5:50pm PT)
+  cron.schedule('50 23,5,11,17 * * *', async () => {
+    try {
+      const jarvisChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_JARVIS!).catch(() => null);
+      if (jarvisChannel?.isTextBased()) {
+        await (jarvisChannel as any).send(
+          `Research loop runs in **10 minutes**. Reply now if you want to add anything to the queue before it locks.\n` +
+          `_(Next window after this: in 6 hours)_`
+        );
+      }
+    } catch (err) {
+      console.error('[pre-research-warn] Failed:', err);
+    }
+  }, { timezone: TZ });
+
   // Research loop: every 6 hours
   cron.schedule('0 */6 * * *', () => {
     runResearchLoop(discord).catch(console.error);
