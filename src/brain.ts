@@ -232,6 +232,28 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: [],
     },
   },
+  read_tweet: {
+    name: 'read_tweet',
+    description: 'Fetch a single tweet by ID from Twitter/X. Returns the tweet text, author, timestamp, and engagement metrics. Use when Jake pastes a tweet URL or asks to read a specific tweet.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        tweet_id: { type: 'string', description: 'The tweet ID (numeric string from the tweet URL)' },
+      },
+      required: ['tweet_id'],
+    },
+  },
+  read_thread: {
+    name: 'read_thread',
+    description: 'Fetch a full tweet thread by starting tweet ID from Twitter/X. Returns all tweets in the conversation sorted chronologically. Use when Jake wants to read a full thread or conversation.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        tweet_id: { type: 'string', description: 'The ID of the first tweet in the thread (numeric string from the tweet URL)' },
+      },
+      required: ['tweet_id'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -459,6 +481,36 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
       } catch (err) {
         return { toolName: name, output: `Inbox check failed: ${(err as Error).message}` };
       }
+    }
+
+    case 'read_tweet': {
+      const { fetchTweet } = await import('./tools/twitter.js');
+      const result = await fetchTweet(input.tweet_id as string);
+      if (result.error) {
+        return { toolName: name, output: `Tweet fetch failed: ${result.error}` };
+      }
+      const t = result.tweet!;
+      const meta = [
+        `@${t.authorUsername ?? t.authorId} (${t.authorName ?? ''})`,
+        t.createdAt ? new Date(t.createdAt).toUTCString() : '',
+        t.publicMetrics ? `❤️ ${t.publicMetrics.likeCount}  🔁 ${t.publicMetrics.retweetCount}  💬 ${t.publicMetrics.replyCount}` : '',
+      ].filter(Boolean).join(' · ');
+      return { toolName: name, output: `${meta}\n\n${t.text}` };
+    }
+
+    case 'read_thread': {
+      const { fetchThread } = await import('./tools/twitter.js');
+      const result = await fetchThread(input.tweet_id as string);
+      if (result.error && !result.tweets) {
+        return { toolName: name, output: `Thread fetch failed: ${result.error}` };
+      }
+      const tweets = result.tweets ?? [];
+      const formatted = tweets.map((t, i) => {
+        const meta = `@${t.authorUsername ?? t.authorId} · ${t.createdAt ? new Date(t.createdAt).toUTCString() : ''}`;
+        return `**[${i + 1}]** ${meta}\n${t.text}`;
+      }).join('\n\n---\n\n');
+      const note = result.error ? `\n\n⚠️ ${result.error}` : '';
+      return { toolName: name, output: `Thread (${tweets.length} tweet${tweets.length !== 1 ? 's' : ''}):\n\n${formatted}${note}` };
     }
 
     default:

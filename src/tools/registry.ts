@@ -111,6 +111,20 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN'],
   },
+  {
+    id: 'read_tweet',
+    name: 'Read Tweet',
+    description: 'Fetch a single tweet by ID from Twitter/X using the v2 API',
+    installed: true,
+    requiresEnv: ['TWITTER_BEARER_TOKEN'],
+  },
+  {
+    id: 'read_thread',
+    name: 'Read Thread',
+    description: 'Fetch a full tweet thread by tweet ID from Twitter/X using the v2 API',
+    installed: true,
+    requiresEnv: ['TWITTER_BEARER_TOKEN'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {
