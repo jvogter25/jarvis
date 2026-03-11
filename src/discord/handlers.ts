@@ -11,6 +11,21 @@ import { extractCssFromUrl, updateDesignTokens, saveComponent, saveInspiration, 
 import { promoteToProduction } from '../tools/builder.js';
 import { notifySlackEngineering } from '../tools/slack.js';
 import { processTrainingMaterial } from '../tools/knowledge.js';
+import { execSync } from 'child_process';
+import { createRequire } from 'module';
+
+const _require = createRequire(import.meta.url);
+
+function getVersionString(): string {
+  const pkg = _require('../../package.json') as { version: string };
+  let hash = '';
+  try {
+    hash = execSync('git rev-parse --short HEAD', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+  } catch {
+    // git not available
+  }
+  return hash ? `Jarvis v${pkg.version} (${hash})` : `Jarvis v${pkg.version}`;
+}
 
 type SendableChannel = TextChannel | DMChannel | NewsChannel;
 
@@ -395,8 +410,14 @@ export async function handleMessage(msg: DiscordMessage) {
     return;
   }
 
-  // Overnight mode deactivation
+  // Version command
   const lower = msg.content.toLowerCase().trim();
+  if (lower === 'version') {
+    await msg.channel.send(getVersionString());
+    return;
+  }
+
+  // Overnight mode deactivation
   if (lower === 'deactivate overnight mode' || lower === 'cancel overnight' || lower === 'disable overnight') {
     deactivateOvernightMode();
     await msg.channel.send('Overnight mode deactivated. Builds can now go to production again.');
