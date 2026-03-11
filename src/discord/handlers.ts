@@ -62,6 +62,11 @@ const pendingPRApproval = new Map<string, {
   plan: SelfModifyPlan;
 }>();
 
+// Short-term memory: after a PR is opened, remember it for 15 min so
+// follow-up questions ("did you ship it?") don't retrigger Claude Code.
+const recentlyShippedPR = new Map<string, { prUrl: string; shippedAt: number }>();
+const PR_MEMORY_MS = 15 * 60 * 1000;
+
 interface PendingPreviewEntry {
   slug: string;
   previewUrl: string;
@@ -349,6 +354,7 @@ export async function handleMessage(msg: DiscordMessage) {
         const result = await executeSelfModifyPlan(pendingModify.plan);
         await msg.channel.send(result.message);
         if (result.success && result.prUrl) {
+          recentlyShippedPR.set(CHANNELS.JARVIS, { prUrl: result.prUrl, shippedAt: Date.now() });
           await notifySlackEngineering(`🔧 Self-modify PR opened: ${result.prUrl}`);
         }
       } catch (err) {
@@ -477,6 +483,18 @@ export async function handleMessage(msg: DiscordMessage) {
       `You'll see a summary in your morning brief.`
     );
     return;
+  }
+
+  // If a PR was recently opened, answer status questions instead of re-running.
+  const recentPR = recentlyShippedPR.get(CHANNELS.JARVIS);
+  if (recentPR && isGlobalJarvis && Date.now() - recentPR.shippedAt < PR_MEMORY_MS) {
+    const isStatusCheck = /\b(?:did you|have you|did it|did that|finalize|ship|land|merge|pr|pull request|done|finished|complete|status)\b/i.test(msg.content);
+    if (isStatusCheck) {
+      await msg.channel.send(`Already shipped — PR is open: ${recentPR.prUrl}\nMerge it on GitHub and Railway redeploys automatically.`);
+      return;
+    }
+    // Unrelated new request — clear memory so it doesn't block fresh work
+    recentlyShippedPR.delete(CHANNELS.JARVIS);
   }
 
   // Self-modify fast path: detect coding task requests and fire background immediately
