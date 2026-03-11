@@ -1,0 +1,358 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0d0d0d;
+  --panel: #111318;
+  --panel-border: #1e2330;
+  --header-bg: #090b0f;
+  --text: #c8d0e0;
+  --text-dim: #5a6278;
+  --accent: #4a90e2;
+  --accent-glow: rgba(74, 144, 226, 0.25);
+  --green: #48c774;
+  --amber: #ffdd57;
+  --red: #f14668;
+  --tile: 48px;
+  --font: 'Courier New', 'Lucida Console', monospace;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: none;
+  image-rendering: pixelated;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 2px; }
+
+/* ─── Sprite system ──────────────────────────────────────── */
+
+/*
+ * Kenney 1-Bit Pack — tilemap_packed.png
+ * Natural tile size: 16×16px  |  Rendered at 3× = 48×48px
+ *
+ * Sheet dimensions (tilemap_packed.png): 784 × 2048 native pixels
+ *   → 49 tiles wide × 128 tiles tall
+ *
+ * Rendered sheet dimensions at 3×:
+ *   width:  49 × 48 = 2352px
+ *   height: 128 × 48 = 6144px
+ *
+ * Sprite tile coordinates (col, row) are 0-indexed.
+ * background-position = -(col × 48)px -(row × 48)px
+ *
+ * Adjust SPRITE_* custom properties below to remap sprites
+ * once you've confirmed the actual tile positions.
+ */
+.sprite {
+  display: inline-block;
+  width: var(--tile);
+  height: var(--tile);
+  background-image: url('/sprites/tilemap_packed.png');
+  background-size: 2352px 6144px; /* 49×3 × 128×3 */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  flex-shrink: 0;
+}
+
+/* Agent sprite tile positions — (col × 48) px  (row × 48) px */
+.sprite-brain      { background-position: -624px -1248px; } /* col 13, row 26 — person */
+.sprite-engineer   { background-position: -672px -1248px; } /* col 14, row 26 */
+.sprite-researcher { background-position: -720px -1248px; } /* col 15, row 26 */
+.sprite-designer   { background-position: -768px -1248px; } /* col 16, row 26 */
+.sprite-inbox      { background-position: -816px -1248px; } /* col 17, row 26 */
+.sprite-builder    { background-position: -864px -1248px; } /* col 18, row 26 */
+.sprite-trainer    { background-position: -912px -1248px; } /* col 19, row 26 */
+
+/* Floor/wall tiles for room backgrounds */
+.sprite-floor      { background-position:    0px    0px; } /* col 0, row 0 */
+.sprite-wall-h     { background-position:  -48px    0px; } /* col 1, row 0 */
+.sprite-wall-v     { background-position:  -96px    0px; } /* col 2, row 0 */
+.sprite-corner     { background-position: -144px    0px; } /* col 3, row 0 */
+
+/* ─── Animations ─────────────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-4px); }
+}
+
+@keyframes working {
+  0%   { transform: translateY(0px) rotate(0deg); }
+  25%  { transform: translateY(-3px) rotate(-3deg); }
+  50%  { transform: translateY(-5px) rotate(0deg); }
+  75%  { transform: translateY(-3px) rotate(3deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--accent-glow)); }
+  50%       { filter: drop-shadow(0 0 10px var(--accent)); }
+}
+
+@keyframes scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.sprite.idle    { animation: float 3s ease-in-out infinite; }
+.sprite.working { animation: working 0.6s ease-in-out infinite, pulse-glow 1.5s ease-in-out infinite; }
+
+/* ─── Layout ─────────────────────────────────────────────── */
+.hq-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.hq-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.hq-header h1 {
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hq-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+.status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+.hq-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  flex: 1;
+  background: var(--panel-border);
+  overflow: hidden;
+}
+
+/* 5th room (Inbox) spans full bottom row */
+.hq-grid > .room:last-child {
+  grid-column: 1 / -1;
+}
+
+/* ─── Room ───────────────────────────────────────────────── */
+.room {
+  position: relative;
+  background: var(--panel);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.room-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.room-icon { font-size: 12px; }
+
+.room-title {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  flex: 1;
+}
+
+.room-activity {
+  font-size: 10px;
+  color: var(--text-dim);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tile floor grid background */
+.room-floor {
+  position: absolute;
+  inset: 0;
+  top: 33px; /* below header */
+  background-image:
+    linear-gradient(var(--panel-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--panel-border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: 0 0;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+/* Agent canvas area */
+.room-stage {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  flex-wrap: wrap;
+  align-content: flex-end;
+  z-index: 1;
+}
+
+/* ─── Agent sprite wrapper ───────────────────────────────── */
+.agent-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: default;
+}
+
+.agent-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+
+/* ─── Tooltip ────────────────────────────────────────────── */
+.tooltip {
+  position: absolute;
+  bottom: calc(var(--tile) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1d28;
+  border: 1px solid var(--accent);
+  color: var(--text);
+  font-size: 10px;
+  padding: 5px 8px;
+  border-radius: 2px;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.agent-wrap:hover .tooltip { opacity: 1; }
+
+/* Arrow */
+.tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--accent);
+}
+
+/* ─── Event log ticker ───────────────────────────────────── */
+.event-ticker {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  background: var(--header-bg);
+  border-top: 1px solid var(--panel-border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  z-index: 20;
+}
+
+.event-ticker-inner {
+  display: flex;
+  gap: 40px;
+  animation: ticker-scroll 30s linear infinite;
+  padding-left: 100%;
+  white-space: nowrap;
+}
+
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.ticker-item {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.ticker-item .ts { color: var(--accent); margin-right: 6px; }
+.ticker-item .ev { color: var(--green); margin-right: 4px; }
+
+/* ─── Auth page ──────────────────────────────────────────── */
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+  text-align: center;
+}
+
+.auth-page h1 { font-size: 24px; color: var(--accent); letter-spacing: 0.2em; }
+.auth-page p  { color: var(--text-dim); font-size: 12px; }
+.auth-page code { color: var(--amber); }
+
+/* ─── Scanline overlay ───────────────────────────────────── */
+.scanlines::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 100;
+}

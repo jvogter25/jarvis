@@ -2,6 +2,7 @@ import { Client, TextChannel } from 'discord.js';
 import { getRecentMessages, getSystemPrompt, saveSystemPrompt, getRecentKnowledge, getAllProjectConfigs, updateProjectConfig, getProjectConfig } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { CHANNELS } from '../discord/channels.js';
+import { emitDashboardEvent } from '../dashboard/events.js';
 
 async function syncProjectPrompt(slug: string, globalPrompt: string): Promise<void> {
   const project = await getProjectConfig(slug);
@@ -20,6 +21,7 @@ async function syncProjectPrompt(slug: string, globalPrompt: string): Promise<vo
 
 export async function runOvernightTraining(discord: Client) {
   console.log('Overnight training: starting...');
+  emitDashboardEvent({ type: 'training_step', room: 'office', agent: 'trainer', task: 'Overnight training starting...' });
 
   const history = await getRecentMessages(CHANNELS.JARVIS, 100);
   const currentPrompt = await getSystemPrompt();
@@ -61,6 +63,7 @@ Respond with JSON only, no markdown:
 {"analysis": "what you found", "new_prompt": "the improved system prompt"}`;
 
   try {
+    emitDashboardEvent({ type: 'training_step', room: 'office', agent: 'trainer', task: 'Analyzing conversations & rewriting system prompt...' });
     const raw = (await think('You are a prompt engineering assistant.', [], analysisPrompt, { model: 'sonnet', noTools: true })).text;
     const cleaned = raw.replace(/^```(?:json)?\n/m, '').replace(/\n```$/m, '').trim();
     const parsed = JSON.parse(cleaned);
@@ -106,6 +109,7 @@ Incorporate the key insights naturally into the relevant sections of the prompt.
       }
     }
 
+    emitDashboardEvent({ type: 'training_complete', room: 'office', agent: 'trainer', task: 'Overnight training complete — new prompt saved' });
     const logChannel = discord.channels.cache.get(CHANNELS.OVERNIGHT_LOG) as TextChannel | undefined;
     if (logChannel) {
       await logChannel.send(`**Overnight Training Complete**\n\n**Analysis:** ${parsed.analysis}\n\n**New prompt version saved.**`);
