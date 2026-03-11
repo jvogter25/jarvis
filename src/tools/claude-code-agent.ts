@@ -180,7 +180,7 @@ async function runSingleSubtask(
     // Network check: verify E2B sandbox can reach api.anthropic.com
     console.log('[claude-code] Checking network connectivity to api.anthropic.com...');
     const networkCheck = await sandbox.commands.run(
-      'curl -sf --max-time 10 https://api.anthropic.com -o /dev/null && echo "NETWORK_OK"',
+      'curl -s --max-time 10 https://api.anthropic.com -o /dev/null && echo "NETWORK_OK"',
       { timeoutMs: 15_000 }
     );
     const networkOut = (networkCheck.stdout ?? '') + (networkCheck.stderr ?? '');
