@@ -4,6 +4,7 @@ import { createProject, updateProject } from '../memory/supabase.js';
 import { isOvernightActive } from '../overnight/mode.js';
 import { think } from '../brain.js';
 import { runNextjsPreview } from '../sandbox/client.js';
+import { emitDashboardEvent } from '../dashboard/events.js';
 
 const TEMPLATE_REPO = 'jarvis-template';
 const OWNER = process.env.GITHUB_OWNER!;
@@ -253,6 +254,7 @@ export async function buildProject(
   plan.slug = uniqueSlug;
 
   console.log(`[build] Starting build for ${plan.slug} (${plan.buildType}), ${generatedFiles.length} files`);
+  emitDashboardEvent({ type: 'build_step', room: 'engineering', agent: 'builder', task: `Starting build: ${plan.slug}`, data: { slug: plan.slug } });
 
   await createProject({
     name: plan.projectName,
@@ -265,12 +267,14 @@ export async function buildProject(
 
   // Fork template
   console.log(`[build] Forking template ${TEMPLATE_REPO}...`);
+  emitDashboardEvent({ type: 'build_step', room: 'engineering', agent: 'builder', task: `Forking template → ${plan.slug}` });
   await createRepoFromTemplate(TEMPLATE_REPO, plan.slug);
   await new Promise(r => setTimeout(r, 4000));
   console.log(`[build] Repo forked: github.com/${OWNER}/${plan.slug}`);
 
   // Create Vercel project
   console.log(`[build] Creating Vercel project...`);
+  emitDashboardEvent({ type: 'build_step', room: 'engineering', agent: 'builder', task: `Creating Vercel project: ${plan.slug}` });
   const vercelProjectId = await createVercelProject(plan.slug);
   await updateProject(plan.slug, { github_repo: plan.slug, vercel_project_id: vercelProjectId });
   console.log(`[build] Vercel project created: ${vercelProjectId}`);
@@ -307,9 +311,18 @@ export async function buildProject(
 
   await updateProject(plan.slug, { status: 'staging' });
   console.log(`[build] Polling for staging URL (up to 2min)...`);
+  emitDashboardEvent({ type: 'build_step', room: 'engineering', agent: 'builder', task: `Deploying to Vercel staging: ${plan.slug}` });
   const stagingUrl = await pollStagingUrl(vercelProjectId);
   if (stagingUrl) await updateProject(plan.slug, { staging_url: stagingUrl });
   console.log(`[build] Staging URL: ${stagingUrl || 'not ready yet'}`);
+
+  emitDashboardEvent({
+    type: 'build_complete',
+    room: 'engineering',
+    agent: 'builder',
+    task: `Build complete: ${plan.slug}${stagingUrl ? ' → ' + stagingUrl : ''}`,
+    data: { slug: plan.slug, stagingUrl },
+  });
 
   return {
     slug: plan.slug,
