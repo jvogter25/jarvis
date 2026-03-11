@@ -235,13 +235,24 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   },
   read_tweet: {
     name: 'read_tweet',
-    description: 'Fetch a tweet and its full conversation thread from Twitter/X. Accepts a tweet URL (https://twitter.com/user/status/123 or https://x.com/...) or a raw tweet ID. Returns the tweet text, author, and all replies in the thread.',
+    description: 'Fetch structured tweet metadata (author, reply count, thread IDs) via the Twitter v2 API. Only use this when you need metadata like author info or reply counts — NOT for reading article content or tweet text. For reading any twitter.com or x.com URL as human-readable content, use read_twitter instead.',
     input_schema: {
       type: 'object' as const,
       properties: {
         tweet: { type: 'string', description: 'Tweet URL (twitter.com or x.com) or raw tweet ID' },
       },
       required: ['tweet'],
+    },
+  },
+  read_twitter: {
+    name: 'read_twitter',
+    description: 'Read any Twitter/X URL as human-readable text — tweets, articles, threads, profiles. Use this whenever Jake shares a twitter.com or x.com link and wants to know what it says. Logs in automatically with stored credentials so login-gated content (like Twitter Articles) works. Returns the page title and full text content.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        url: { type: 'string', description: 'Full twitter.com or x.com URL to read' },
+      },
+      required: ['url'],
     },
   },
 };
@@ -509,6 +520,13 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
       return { toolName: name, output: formatThread(result) };
     }
 
+    case 'read_twitter': {
+      const { readTwitterContent } = await import('./tools/browser.js');
+      const result = await readTwitterContent(input.url as string);
+      if (result.error) return { toolName: name, output: `Twitter read failed: ${result.error}` };
+      return { toolName: name, output: `**${result.title}**\n\n${result.content}` };
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -562,7 +580,7 @@ export async function think(
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
-    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox'];
+    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox', 'read_twitter', 'browse_web'];
     return [
       TOOL_SCHEMAS.self_modify_request,
       TOOL_SCHEMAS.search_knowledge,
@@ -570,6 +588,8 @@ export async function think(
       TOOL_SCHEMAS.draft_email,
       TOOL_SCHEMAS.send_email,
       TOOL_SCHEMAS.check_inbox,
+      TOOL_SCHEMAS.read_twitter,
+      TOOL_SCHEMAS.browse_web,
       ...Object.values(TOOL_SCHEMAS).filter(
         t => !alwaysAvailable.includes(t.name) && installedToolIds.has(t.name)
       ),
