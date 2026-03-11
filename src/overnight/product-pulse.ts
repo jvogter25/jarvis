@@ -2,6 +2,7 @@ import { Client, TextChannel } from 'discord.js';
 import { getProjects, getAllProjectConfigs } from '../memory/supabase.js';
 import { think } from '../brain.js';
 import { CHANNELS } from '../discord/channels.js';
+import { emitDashboardEvent } from '../dashboard/events.js';
 
 interface VercelAnalytics {
   pageviews: number;
@@ -41,8 +42,12 @@ async function fetchVercelAnalytics(projectId: string): Promise<VercelAnalytics 
 }
 
 export async function runProductPulse(discord: Client): Promise<void> {
+  emitDashboardEvent({ type: 'cron_start', room: 'research', agent: 'product-pulse', task: 'Weekly product pulse running...' });
   const liveProjects = await getProjects('live');
-  if (liveProjects.length === 0) return;
+  if (liveProjects.length === 0) {
+    emitDashboardEvent({ type: 'cron_complete', room: 'research', agent: 'product-pulse', task: 'No live projects to pulse' });
+    return;
+  }
 
   const projectConfigs = await getAllProjectConfigs();
   const projectChannelMap = new Map(
@@ -88,6 +93,7 @@ In 3-4 sentences max:
 
 Be direct. No hedging.`;
 
+    emitDashboardEvent({ type: 'cron_start', room: 'research', agent: 'product-pulse', task: `Analyzing ${project.name}...` });
     try {
       const analysis = await think(
         'You are a product analyst for a bootstrapped SaaS.',
@@ -116,5 +122,6 @@ Be direct. No hedging.`;
       const fallback = `**${project.name}** — analytics unavailable`;
       await projectChannel.send(fallback).catch(() => undefined);
     }
+    emitDashboardEvent({ type: 'cron_complete', room: 'research', agent: 'product-pulse', task: `Pulse complete: ${project.name}` });
   }
 }
