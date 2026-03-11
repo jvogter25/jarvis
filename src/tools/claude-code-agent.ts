@@ -9,6 +9,20 @@ const execAsync = promisify(exec);
 
 const SDK_TIMEOUT_MS = 20 * 60 * 1000;  // 20 min abort threshold
 
+// Claude Code refuses --dangerously-skip-permissions as root.
+// We create a non-root user once and cache their uid for subprocess spawning.
+let claudeRunnerUid: number | null = null;
+async function getClaudeRunnerUid(): Promise<number> {
+  if (claudeRunnerUid !== null) return claudeRunnerUid;
+  await execAsync('id clauderunner 2>/dev/null || useradd -m -s /bin/sh clauderunner');
+  // Allow clauderunner to read the claude-code package in /app/node_modules
+  await execAsync('chmod o+rX -R /app/node_modules/@anthropic-ai/claude-code 2>/dev/null || true');
+  const { stdout } = await execAsync('id -u clauderunner');
+  claudeRunnerUid = parseInt(stdout.trim(), 10);
+  console.log(`[claude-code] clauderunner uid: ${claudeRunnerUid}`);
+  return claudeRunnerUid;
+}
+
 export interface ClaudeCodeResult {
   success: boolean;
   files: Array<{ path: string; content: string }>;
@@ -64,10 +78,12 @@ export async function runClaudeCodeAgent(intent: string, notify?: NotifyFn): Pro
     console.log('[claude-code] Prompt length:', prompt.length, 'bytes');
     await notify?.(`🔍 **Prompt ready** (${prompt.length} bytes). Starting Claude Code...`).catch(() => {});
 
-    // Spawn Claude Code CLI directly on Railway — stdio:'pipe' eliminates TTY buffering,
-    // setTimeout gives us a hard timeout we control (unlike E2B's black-box hang)
+    // Spawn Claude Code CLI as non-root (required by --dangerously-skip-permissions)
     const CLAUDE_BIN = '/app/node_modules/@anthropic-ai/claude-code/cli.js';
-    await runClaudeCliSubprocess(CLAUDE_BIN, prompt, workDir, notify);
+    const runnerUid = await getClaudeRunnerUid();
+    // chown workDir so clauderunner can write to it
+    await execAsync(`chown -R clauderunner ${workDir}`);
+    await runClaudeCliSubprocess(CLAUDE_BIN, prompt, workDir, runnerUid, notify);
 
     // Push checkpoint branch to GitHub
     console.log(`[claude-code] Pushing branch ${checkpointBranch}...`);
@@ -114,13 +130,15 @@ async function runClaudeCliSubprocess(
   cliBin: string,
   prompt: string,
   cwd: string,
+  uid: number,
   notify?: NotifyFn,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn('node', [cliBin, '--dangerously-skip-permissions', '-p', prompt], {
       cwd,
-      env: { ...process.env },
+      env: { ...process.env, HOME: '/home/clauderunner' },
       stdio: ['ignore', 'pipe', 'pipe'],  // pipe = no TTY, no buffering issues
+      uid,
     });
 
     const timeoutHandle = setTimeout(() => {
