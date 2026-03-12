@@ -370,6 +370,8 @@ export async function handleMessage(msg: DiscordMessage) {
     const approveModify = isShipApproval(msg.content) || isAffirmative(msg.content);
     if (approveModify) {
       pendingPRApproval.delete(msg.channelId);
+      // Block duplicate events from re-triggering the brain before the plan executes
+      recentlyShippedPR.set(CHANNELS.JARVIS, { prUrl: '(executing)', shippedAt: Date.now() });
       await msg.channel.send('Executing the change...');
       try {
         const result = await executeSelfModifyPlan(pendingModify.plan);
@@ -379,6 +381,7 @@ export async function handleMessage(msg: DiscordMessage) {
           await notifySlackEngineering(`🔧 Self-modify PR opened: ${result.prUrl}`);
         }
       } catch (err) {
+        recentlyShippedPR.delete(CHANNELS.JARVIS);
         await msg.channel.send(`⚠️ Failed: ${(err as Error).message}`);
       }
       return;
