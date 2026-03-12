@@ -66,23 +66,4 @@ Score dimensions requested: production readiness, income model viability, compet
     url: 'https://twitter.com/sukh_saroy',
     score: 0,
   },
-  {
-    source: 'web',
-    title: 'CashClaw — Autonomous agent framework that finds work, delivers, and gets paid; repo not yet live',
-    body: `Via @moltlaunch on Twitter/X.
-
-Opportunity: CashClaw is a described agent framework that autonomously finds freelance/gig work, delivers the work, and collects payment — a fully autonomous income agent. The GitHub repo is not yet live as of discovery date (2026-03-11). Monitor-only status until repo ships.
-
-Key signals:
-- If it works as described, this is a step-function advance in autonomous agent utility — concept is extremely high-signal
-- No repo yet means no validation of technical claims — treat as high-concept, low-confidence
-- "Gets paid autonomously" implies payment rail integration (Stripe Connect? crypto?) — non-trivial regulatory and compliance surface
-- Timeline to usable: unknown — could be weeks if repo drops polished, could be vaporware
-- Concept viability: the individual pieces exist (job board scraping, Claude code generation, Stripe payouts) but orchestration is hard
-- Monitor strategy: watch @moltlaunch and the GitHub org for repo launch; evaluate immediately when code is public
-
-Score dimensions requested: concept viability, timeline to usable (monitor-only — do not recommend building yet).`,
-    url: 'https://twitter.com/moltlaunch',
-    score: 0,
-  },
 ];
