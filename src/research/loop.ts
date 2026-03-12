@@ -45,10 +45,12 @@ export async function runResearchLoop(discord: Client) {
   }
 
   const unposted = await getUnpostedOpportunities();
-  const channel = discord.channels.cache.get(CHANNELS.RESEARCH) as TextChannel | undefined;
+  // Use fetch() not cache.get() — cache.get() returns undefined if the channel
+  // was never loaded into cache (common on first run or after restart).
+  const channel = await discord.channels.fetch(CHANNELS.RESEARCH).catch(() => null) as TextChannel | null;
 
   if (!channel) {
-    console.error('Research channel not found in cache');
+    console.error('Research channel not found — check DISCORD_CHANNEL_RESEARCH env var');
     return;
   }
 
