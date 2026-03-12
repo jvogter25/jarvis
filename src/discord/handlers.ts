@@ -397,8 +397,9 @@ export async function handleMessage(msg: DiscordMessage) {
       pendingSelfModifyConfirmation.delete(msg.channelId);
       const { getDiscordClient } = await import('./client.js');
       const discord = getDiscordClient();
+      const projectEngChannelId = projectChannelConfig?.channels?.engineering;
       const engChannelRaw = discord
-        ? await discord.channels.fetch(CHANNELS.ENGINEERING).catch(() => null)
+        ? await discord.channels.fetch(projectEngChannelId ?? CHANNELS.ENGINEERING).catch(() => null)
         : null;
       if (engChannelRaw && isSendable(engChannelRaw as DiscordMessage['channel'])) {
         const engChannel = engChannelRaw as SendableChannel;
@@ -693,10 +694,13 @@ export async function handleMessage(msg: DiscordMessage) {
       }
       if (toolResult.selfModifyIntent) {
         // Brain wants to make a code change — ask Jake first before running Claude Code.
-        pendingSelfModifyConfirmation.set(msg.channelId, { intent: toolResult.selfModifyIntent });
-        await msg.channel.send(
-          `That sounds like a code change request.\n\n> ${toolResult.selfModifyIntent}\n\nShould I implement this? **(yes/no)**`
-        );
+        if (!pendingSelfModifyConfirmation.has(msg.channelId)) {
+          pendingSelfModifyConfirmation.set(msg.channelId, { intent: toolResult.selfModifyIntent });
+          await msg.channel.send(
+            `That sounds like a code change request.\n\n> ${toolResult.selfModifyIntent}\n\nShould I implement this? **(yes/no)**`
+          );
+        }
+        // Duplicate intent — silently dropped
       }
       if (toolResult.selfModifyProposal) {
         // Always key by #jarvis so Jake's "ship it" there is caught by handleMessage.

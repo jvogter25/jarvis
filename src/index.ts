@@ -11,7 +11,6 @@ import { runInboxMonitor } from './overnight/inbox-monitor.js';
 import { processQueue } from './tools/engineering-queue.js';
 import { isEmergencyLocked, restoreEmergencyLockState } from './tools/emergency.js';
 import { startWebSocketServer } from './dashboard/events.js';
-import { fetchTwitterThread, formatThread } from './tools/twitter.js';
 
 let isShuttingDown = false;
 export function getIsShuttingDown(): boolean { return isShuttingDown; }
@@ -123,27 +122,6 @@ async function main() {
   // Inbox monitor: every 30 minutes
   cron.schedule('*/30 * * * *', () => {
     runInboxMonitor(discord).catch(console.error);
-  }, { timezone: TZ });
-
-  // Tweet watcher: fetch https://x.com/moltlaunch/status/2031830587309506873 every 20 min
-  // Stops automatically once the tweet is successfully retrieved and posted.
-  const tweetWatcher = cron.schedule('*/20 * * * *', async () => {
-    try {
-      const result = await fetchTwitterThread('https://x.com/moltlaunch/status/2031830587309506873');
-      if (result.error || !result.tweet.text) {
-        console.log('[tweet-watcher] Fetch attempt failed silently:', result.error ?? 'empty tweet');
-        return;
-      }
-      const jarvisChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_JARVIS!).catch(() => null);
-      if (jarvisChannel?.isTextBased()) {
-        const formatted = formatThread(result);
-        await (jarvisChannel as any).send(formatted);
-      }
-      tweetWatcher.stop();
-      console.log('[tweet-watcher] Tweet fetched and posted — cron stopped.');
-    } catch (err) {
-      console.log('[tweet-watcher] Fetch attempt failed silently:', (err as Error).message);
-    }
   }, { timezone: TZ });
 
   console.log('Jarvis online.');
