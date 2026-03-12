@@ -153,13 +153,17 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
   },
   self_modify_request: {
     name: 'self_modify_request',
-    description: 'Request a code change to the Jarvis codebase. ONLY call this when Jake has explicitly asked you to add, build, implement, change, fix, or install something in the codebase — using words like "add", "build", "implement", "create", "install", "fix", or "change". NEVER call this to answer a question, explain status, describe what you are doing, or respond to conversational messages. If the message is a question (starts with "what", "how", "why", "can you", "tell me", etc.) do NOT call this tool. Calling this tool asks Jake to confirm before any code is written.',
+    description: 'Request a code change to the Jarvis codebase or another repo. ONLY call this when Jake has explicitly asked you to add, build, implement, change, fix, or install something in the codebase — using words like "add", "build", "implement", "create", "install", "fix", or "change". NEVER call this to answer a question, explain status, describe what you are doing, or respond to conversational messages. If the message is a question (starts with "what", "how", "why", "can you", "tell me", etc.) do NOT call this tool. Calling this tool asks Jake to confirm before any code is written.',
     input_schema: {
       type: 'object' as const,
       properties: {
         intent: {
           type: 'string',
           description: 'Plain-English description of what to build or change, e.g. "add Resend email integration" or "change research loop to run every 4 hours" or "add Stripe payments tool"',
+        },
+        target_repo: {
+          type: 'string',
+          description: 'GitHub repo to modify (default: jarvis). Use for other repos like cashclaw-agent.',
         },
       },
       required: ['intent'],
@@ -264,6 +268,7 @@ export interface ToolCallResult {
   stagingBuild?: { slug: string; githubRepo: string; stagingUrl: string; vercelProjectId: string };
   selfModifyProposal?: { plan: import('./tools/self-modify.js').SelfModifyPlan; message: string };
   selfModifyIntent?: string;  // pending confirmation — Opus not yet run
+  selfModifyTargetRepo?: string;  // optional target repo for self_modify_request
   createProjectResult?: { slug: string; generalChannelId: string; githubRepo: string };
   previewResult?: {
     slug: string;
@@ -422,10 +427,12 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
     case 'self_modify_request': {
       // Don't run Opus yet — surface intent to handlers.ts for Jake's yes/no confirmation.
       const intent = input.intent as string;
+      const targetRepo = input.target_repo as string | undefined;
       return {
         toolName: name,
-        output: `Awaiting Jake's confirmation to implement: ${intent}`,
+        output: `REQUEST QUEUED. Jake has been notified and must confirm before anything runs. Do NOT call self_modify_request again — one request per conversation turn. Wait for Jake's yes/no.`,
         selfModifyIntent: intent,
+        selfModifyTargetRepo: targetRepo,
       };
     }
 

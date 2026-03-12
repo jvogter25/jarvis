@@ -30,11 +30,12 @@ function keepTyping(channel: SendableChannel): () => void {
 
 async function runSelfModifyInBackground(
   intent: string,
-  reportChannel: SendableChannel
+  reportChannel: SendableChannel,
+  targetRepo?: string
 ): Promise<void> {
   try {
     const notify = (msg: string) => reportChannel.send(msg).then(() => {});
-    const result = await requestSelfModify(intent, notify);
+    const result = await requestSelfModify(intent, notify, targetRepo);
     if (!result.success || !result.plan) {
       await reportChannel.send(`Self-modify failed: ${result.message}`);
       return;
@@ -70,7 +71,7 @@ const PR_MEMORY_MS = 15 * 60 * 1000;
 
 // Confirmation gate: before running Claude Code the brain surfaces the intent here.
 // Jake says yes/no; only on yes does Claude Code actually fire.
-const pendingSelfModifyConfirmation = new Map<string, { intent: string }>();
+const pendingSelfModifyConfirmation = new Map<string, { intent: string; targetRepo?: string }>();
 
 interface PendingPreviewEntry {
   slug: string;
@@ -408,7 +409,7 @@ export async function handleMessage(msg: DiscordMessage) {
         const engChannel = engChannelRaw as SendableChannel;
         await msg.channel.send("On it — progress in #engineering.");
         await saveMessage(msg.channelId, 'user', pendingConfirm.intent);
-        runSelfModifyInBackground(pendingConfirm.intent, engChannel).catch(err =>
+        runSelfModifyInBackground(pendingConfirm.intent, engChannel, pendingConfirm.targetRepo).catch(err =>
           console.error('[self-modify-confirm] Failed:', err)
         );
       }
@@ -698,9 +699,13 @@ export async function handleMessage(msg: DiscordMessage) {
       if (toolResult.selfModifyIntent) {
         // Brain wants to make a code change — ask Jake first before running Claude Code.
         if (!pendingSelfModifyConfirmation.has(msg.channelId)) {
-          pendingSelfModifyConfirmation.set(msg.channelId, { intent: toolResult.selfModifyIntent });
+          pendingSelfModifyConfirmation.set(msg.channelId, {
+            intent: toolResult.selfModifyIntent,
+            targetRepo: toolResult.selfModifyTargetRepo,
+          });
+          const repoNote = toolResult.selfModifyTargetRepo ? ` (in \`${toolResult.selfModifyTargetRepo}\`)` : '';
           await msg.channel.send(
-            `That sounds like a code change request.\n\n> ${toolResult.selfModifyIntent}\n\nShould I implement this? **(yes/no)**`
+            `That sounds like a code change request${repoNote}.\n\n> ${toolResult.selfModifyIntent}\n\nShould I implement this? **(yes/no)**`
           );
         }
         // Duplicate intent — silently dropped
