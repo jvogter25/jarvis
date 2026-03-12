@@ -66,7 +66,8 @@ export async function scorePost(post: RawPost): Promise<ScoredOpportunity | null
     }
 
     return result;
-  } catch {
+  } catch (err) {
+    console.error(`scorePost failed for "${post.title.slice(0, 60)}": ${(err as Error).message}`);
     return null;
   }
 }
