@@ -165,3 +165,46 @@ export async function runRedditMonitor(): Promise<SocialDraft[]> {
 
   return drafts;
 }
+
+export const TWITTER_FOLLOW_LIST = [
+  // Moltlaunch
+  'moltlaunch',
+  // Exchanges
+  'coinbase', 'binance', 'krakenfx', 'gemini', 'okx', 'bybit_official',
+  // L1s
+  'bitcoin', 'ethereum', 'solana', 'avalancheavax', 'cosmos', 'nearprotocol', 'aptos', 'sui_network',
+  // L2s / scaling
+  'arbitrum', 'optimismFND', 'base', '0xpolygon', 'zksync', 'starknet',
+  // DeFi protocols
+  'uniswap', 'aave', 'MakerDAO', 'compoundfinance', 'curvefi', 'chainlink', 'lido_fi', 'eigenlayer', 'GMX_IO',
+  // News & research
+  'coindesk', 'cointelegraph', 'thedefiant', 'messaricrypto', 'blockworks_', 'banklesshq', 'delphi_digital', 'nansen_ai', 'tokenterminal', 'glassnode',
+  // Key figures
+  'vitalikbuterin', 'haydenzadams', 'stanikulechov', 'naval',
+  // Regulatory
+  'sec_gov', 'coincenter',
+];
+
+export const REDDIT_SUB_LIST = [
+  'Bitcoin', 'ethereum', 'CryptoCurrency', 'ethfinance', 'defi',
+  'web3', 'solana', 'uniswap', 'Chainlink', '0xPolygon',
+];
+
+/**
+ * One-time setup: follow Twitter accounts and subscribe to Reddit subs for an agent.
+ */
+export async function runSocialSetup(agent: 'vantage' | 'sentinel'): Promise<{
+  twitter: { followed: number; skipped: number; failed: string[] };
+  reddit: { subscribed: number; skipped: number; failed: string[] };
+}> {
+  const { followTwitterAccounts, subscribeRedditSubs } = await import('../tools/social-post.js');
+
+  console.log(`[social-setup] Running setup for ${agent}...`);
+  const twitter = await followTwitterAccounts(agent, TWITTER_FOLLOW_LIST);
+  console.log(`[social-setup] Twitter done for ${agent}: followed=${twitter.followed} skipped=${twitter.skipped} failed=${twitter.failed.length}`);
+
+  const reddit = await subscribeRedditSubs(agent, REDDIT_SUB_LIST);
+  console.log(`[social-setup] Reddit done for ${agent}: subscribed=${reddit.subscribed} skipped=${reddit.skipped} failed=${reddit.failed.length}`);
+
+  return { twitter, reddit };
+}
