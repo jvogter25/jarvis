@@ -8,7 +8,7 @@ import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted, hasOp
 import { CHANNELS } from '../discord/channels.js';
 import { MANUAL_QUEUE } from './manual-queue.js';
 
-export async function runResearchLoop(discord: Client) {
+export async function runResearchLoop(discord: Client): Promise<void> {
   console.log('Research loop: starting scrape...');
 
   const [redditPosts, hnPosts, bravePosts, phPosts, ihPosts, g2Posts] = await Promise.all([

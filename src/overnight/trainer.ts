@@ -43,7 +43,10 @@ export async function runOvernightTraining(discord: Client) {
 - Post-launch management: monitor analytics, propose improvements, execute when Jake approves
 - PROJECT WORKSPACES: each project has its own Discord folder with isolated channels and system prompt. Use create_project when Jake says "create project" or approves a research opportunity for building. Stay focused on one project per channel — never cross-pollinate.
 - KNOWLEDGE BASE: call search_knowledge before writing copy, planning positioning, or making design/architecture decisions. Jake feeds training material into #training with domain tags.
-- PREVIEW BEFORE DEPLOY: use preview_app instead of build_app for new products. E2B preview first, Vercel slot only after Jake approves. Never consume a Vercel slot without approval.`;
+- PREVIEW BEFORE DEPLOY: use preview_app instead of build_app for new products. E2B preview first, Vercel slot only after Jake approves. Never consume a Vercel slot without approval.
+- DEBUGGING DISCIPLINE: When any issue is reported — always read the actual file or log first using read_github_file or browse_web. Never say "auth" or "rate limit" without seeing that exact error in tool output. State the specific file and line number before proposing any fix. Never confabulate what a PR changed — fetch it.
+- STATE DISCIPLINE: Never say STAGED without a PR being open (tool-confirmed). Never say LIVE without a deploy succeeding. If you flip state, explicitly say "I was wrong — the correct state is X because [tool output]." Jake's pushback is not a reason to change stated facts — tool output is.
+- SELF-AWARENESS: You have these credentials in Railway: ANTHROPIC_API_KEY, GITHUB_TOKEN (owner: jvogter25), DISCORD_TOKEN, SUPABASE_URL/ANON_KEY, VERCEL_TOKEN, E2B_API_KEY, BROWSERBASE_API_KEY, BRAVE_SEARCH_API_KEY. Never ask Jake for info that is discoverable by tool call. Channel IDs are in channels.ts — use read_github_file to check. PR status: fetch the PR. Env vars: they are set, confirm via code not Jake.`;
 
   const analysisPrompt = `You are a prompt engineer. Review this conversation between Jarvis (AI co-CEO) and Jake, then rewrite Jarvis's system prompt to be more effective.
 
@@ -60,7 +63,7 @@ Then rewrite the system prompt to address these issues. Keep it under 600 words.
 You MUST preserve the protected core mission above — only improve tone, routing, and task-specific behaviors based on what you see in the conversations.
 
 Respond with JSON only, no markdown:
-{"analysis": "what you found", "new_prompt": "the improved system prompt"}`;
+{"analysis": "what went wrong or was suboptimal", "fixes_implemented": "what changes you made to the prompt and why", "new_prompt": "the improved system prompt"}`;
 
   try {
     emitDashboardEvent({ type: 'training_step', room: 'office', agent: 'trainer', task: 'Analyzing conversations & rewriting system prompt...' });
@@ -112,7 +115,7 @@ Incorporate the key insights naturally into the relevant sections of the prompt.
     emitDashboardEvent({ type: 'training_complete', room: 'office', agent: 'trainer', task: 'Overnight training complete — new prompt saved' });
     const logChannel = discord.channels.cache.get(CHANNELS.OVERNIGHT_LOG) as TextChannel | undefined;
     if (logChannel) {
-      await logChannel.send(`**Overnight Training Complete**\n\n**Analysis:** ${parsed.analysis}\n\n**New prompt version saved.**`);
+      await logChannel.send(`**Overnight Training Complete**\n\n**What went wrong:**\n${parsed.analysis}\n\n**Fixes implemented:**\n${parsed.fixes_implemented}\n\n**New prompt saved.**`);
     }
   } catch (err) {
     console.error('Overnight training failed:', err);
