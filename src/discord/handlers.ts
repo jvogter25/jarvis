@@ -324,7 +324,16 @@ export function queueSocialDrafts(
   drafts: import('../overnight/social-scheduler.js').SocialDraft[]
 ): void {
   if (drafts.length === 0) return;
-  pendingSocialApproval.set(channelId, { drafts, currentIndex: 0 });
+  const existing = pendingSocialApproval.get(channelId);
+  if (existing) {
+    // Append to existing queue rather than overwriting unreviewed drafts
+    pendingSocialApproval.set(channelId, {
+      drafts: [...existing.drafts, ...drafts],
+      currentIndex: existing.currentIndex,
+    });
+  } else {
+    pendingSocialApproval.set(channelId, { drafts, currentIndex: 0 });
+  }
 }
 
 export function restorePendingState(state: ReturnType<typeof getPendingState>): void {
@@ -343,9 +352,10 @@ export async function handleMessage(msg: DiscordMessage) {
     return;
   }
   let isGlobalJarvis = msg.channelId === CHANNELS.JARVIS;
+  const isMarketingChannel = msg.channelId === CHANNELS.MARKETING;
   let projectChannelConfig: ProjectConfig | null = null;
 
-  if (!isGlobalJarvis) {
+  if (!isGlobalJarvis && !isMarketingChannel) {
     projectChannelConfig = await getProjectConfigByChannelId(msg.channelId);
     if (!projectChannelConfig) return;
   }
