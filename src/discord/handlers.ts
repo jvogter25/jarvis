@@ -494,6 +494,24 @@ export async function handleMessage(msg: DiscordMessage) {
     // Conversational — fall through with pending preserved
   }
 
+  // Setup social accounts command
+  if (msg.channelId === CHANNELS.MARKETING && msg.content.toLowerCase().trim() === 'setup social accounts') {
+    await msg.channel.send(`Setting up social accounts for Vantage and Sentinel — this will take a few minutes (following ~45 Twitter accounts and subscribing to 10 subreddits for each agent)...`);
+    try {
+      const { runSocialSetup } = await import('../overnight/social-scheduler.js');
+      for (const agent of ['vantage', 'sentinel'] as const) {
+        await msg.channel.send(`Setting up **${agent}**...`);
+        const result = await runSocialSetup(agent);
+        const twitterLine = `Twitter: ${result.twitter.followed} followed, ${result.twitter.skipped} already following${result.twitter.failed.length > 0 ? `, ${result.twitter.failed.length} failed` : ''}`;
+        const redditLine = `Reddit: ${result.reddit.subscribed} subscribed, ${result.reddit.skipped} already subscribed${result.reddit.failed.length > 0 ? `, ${result.reddit.failed.length} failed` : ''}`;
+        await msg.channel.send(`✅ **${agent}** setup complete\n${twitterLine}\n${redditLine}`);
+      }
+    } catch (err) {
+      await msg.channel.send(`Setup failed: ${(err as Error).message}`);
+    }
+    return;
+  }
+
   // Check if we're waiting for social post approval
   const pendingSocial = pendingSocialApproval.get(msg.channelId);
   if (pendingSocial) {
