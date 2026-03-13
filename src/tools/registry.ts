@@ -118,6 +118,20 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['TWITTER_BEARER_TOKEN'],
   },
+  {
+    id: 'post_twitter',
+    name: 'Post to Twitter',
+    description: 'Post a tweet from Vantage or Sentinel\'s Twitter account via Browserbase',
+    installed: true,
+    requiresEnv: ['BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'TWITTER_VANTAGE_EMAIL'],
+  },
+  {
+    id: 'post_reddit',
+    name: 'Post to Reddit',
+    description: 'Post or reply on Reddit from Vantage or Sentinel\'s account via Browserbase',
+    installed: true,
+    requiresEnv: ['BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'REDDIT_VANTAGE_USERNAME'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {
