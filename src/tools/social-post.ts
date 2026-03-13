@@ -1,5 +1,4 @@
 // src/tools/social-post.ts
-import { chromium } from 'playwright-core';
 
 export interface SocialPostResult {
   platform: 'twitter' | 'reddit';
@@ -44,8 +43,10 @@ export async function postToTwitter(
     return { platform: 'twitter', agent, success: false, error: `Browserbase error: ${(err as Error).message}` };
   }
 
+  let browser: import('playwright-core').Browser | undefined;
   try {
-    const browser = await chromium.connectOverCDP(connectUrl);
+    const { chromium } = await import('playwright-core');
+    browser = await chromium.connectOverCDP(connectUrl);
     const context = browser.contexts()[0] ?? await browser.newContext();
     const page = context.pages()[0] ?? await context.newPage();
 
@@ -67,12 +68,11 @@ export async function postToTwitter(
     await page.click('[data-testid="tweetButtonInline"]');
     await page.waitForTimeout(3000);
 
-    const tweetUrl = page.url();
-
-    await browser.close();
-    return { platform: 'twitter', agent, success: true, url: tweetUrl };
+    return { platform: 'twitter', agent, success: true };
   } catch (err) {
     return { platform: 'twitter', agent, success: false, error: (err as Error).message };
+  } finally {
+    await browser?.close();
   }
 }
 
@@ -90,6 +90,10 @@ export async function postToReddit(
     replyToUrl?: string;
   }
 ): Promise<SocialPostResult> {
+  if (!options.replyToUrl && !options.title) {
+    return { platform: 'reddit', agent, success: false, error: 'title is required for new posts' };
+  }
+
   const apiKey = process.env.BROWSERBASE_API_KEY;
   const projectId = process.env.BROWSERBASE_PROJECT_ID;
   const username = agent === 'vantage'
@@ -117,8 +121,10 @@ export async function postToReddit(
     return { platform: 'reddit', agent, success: false, error: `Browserbase error: ${(err as Error).message}` };
   }
 
+  let browser: import('playwright-core').Browser | undefined;
   try {
-    const browser = await chromium.connectOverCDP(connectUrl);
+    const { chromium } = await import('playwright-core');
+    browser = await chromium.connectOverCDP(connectUrl);
     const context = browser.contexts()[0] ?? await browser.newContext();
     const page = context.pages()[0] ?? await context.newPage();
 
@@ -148,9 +154,10 @@ export async function postToReddit(
       postedUrl = page.url();
     }
 
-    await browser.close();
     return { platform: 'reddit', agent, success: true, url: postedUrl };
   } catch (err) {
     return { platform: 'reddit', agent, success: false, error: (err as Error).message };
+  } finally {
+    await browser?.close();
   }
 }
