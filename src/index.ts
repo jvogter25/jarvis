@@ -124,6 +124,51 @@ async function main() {
     runInboxMonitor(discord).catch(console.error);
   }, { timezone: TZ });
 
+  // Daily social post drafts — noon PT
+  cron.schedule('0 12 * * *', async () => {
+    try {
+      const { runSocialScheduler } = await import('./overnight/social-scheduler.js');
+      const { queueSocialDrafts, formatSocialDraft } = await import('./discord/handlers.js');
+      const drafts = await runSocialScheduler();
+      if (drafts.length === 0) {
+        console.log('[social-scheduler] No drafts generated.');
+        return;
+      }
+      const marketingChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_MARKETING!).catch(() => null);
+      if (marketingChannel?.isTextBased()) {
+        queueSocialDrafts(process.env.DISCORD_CHANNEL_MARKETING!, drafts);
+        const first = drafts[0];
+        await (marketingChannel as any).send(
+          `📱 **Daily social drafts ready** (${drafts.length} total)\n\n` +
+          formatSocialDraft(first)
+        );
+      }
+    } catch (err) {
+      console.error('[social-scheduler] Cron failed:', err);
+    }
+  }, { timezone: TZ });
+
+  // Reddit thread monitor — 9am + 3pm PT
+  cron.schedule('0 9,15 * * *', async () => {
+    try {
+      const { runRedditMonitor } = await import('./overnight/social-scheduler.js');
+      const { queueSocialDrafts, formatSocialDraft } = await import('./discord/handlers.js');
+      const drafts = await runRedditMonitor();
+      if (drafts.length === 0) return;
+      const marketingChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_MARKETING!).catch(() => null);
+      if (marketingChannel?.isTextBased()) {
+        queueSocialDrafts(process.env.DISCORD_CHANNEL_MARKETING!, drafts);
+        const first = drafts[0];
+        await (marketingChannel as any).send(
+          `🟠 **Reddit reply opportunities** (${drafts.length} found)\n\n` +
+          formatSocialDraft(first)
+        );
+      }
+    } catch (err) {
+      console.error('[reddit-monitor] Cron failed:', err);
+    }
+  }, { timezone: TZ });
+
   console.log('Jarvis online.');
 }
 
