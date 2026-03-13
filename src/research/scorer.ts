@@ -42,8 +42,9 @@ export async function scorePost(post: RawPost): Promise<ScoredOpportunity | null
   const content = `Title: ${post.title}\n\nBody: ${post.body.slice(0, 1200)}`;
 
   try {
-    const text = (await think(SCORING_SYSTEM_PROMPT, [], content, { model: 'haiku', noTools: true })).text;
-    const parsed = JSON.parse(text);
+    const raw = (await think(SCORING_SYSTEM_PROMPT, [], content, { model: 'haiku', noTools: true })).text;
+    const cleaned = raw.replace(/^```(?:json)?\n/m, '').replace(/\n```$/m, '').trim();
+    const parsed = JSON.parse(cleaned);
     if (parsed.score < 45) return null;
 
     const result: ScoredOpportunity = {

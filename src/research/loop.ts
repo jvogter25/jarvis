@@ -8,7 +8,7 @@ import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted, hasOp
 import { CHANNELS } from '../discord/channels.js';
 import { MANUAL_QUEUE } from './manual-queue.js';
 
-export async function runResearchLoop(discord: Client) {
+export async function runResearchLoop(discord: Client): Promise<void> {
   console.log('Research loop: starting scrape...');
 
   const [redditPosts, hnPosts, bravePosts, phPosts, ihPosts, g2Posts] = await Promise.all([
@@ -45,10 +45,10 @@ export async function runResearchLoop(discord: Client) {
   }
 
   const unposted = await getUnpostedOpportunities();
-  const channel = discord.channels.cache.get(CHANNELS.RESEARCH) as TextChannel | undefined;
+  const channel = await discord.channels.fetch(CHANNELS.RESEARCH).catch(() => null) as TextChannel | null;
 
   if (!channel) {
-    console.error('Research channel not found in cache');
+    console.error('Research channel not found');
     return;
   }
 

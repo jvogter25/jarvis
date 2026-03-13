@@ -259,6 +259,20 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['url'],
     },
   },
+  read_github_file: {
+    name: 'read_github_file',
+    description: 'Read any file from a GitHub repository. Use this FIRST when diagnosing bugs, checking what a PR changed, or reviewing code before proposing fixes. Always read the actual file before drawing conclusions — never guess at file contents.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        owner: { type: 'string', description: 'GitHub org or user (e.g. "jvogter25")' },
+        repo:  { type: 'string', description: 'Repository name (e.g. "jarvis")' },
+        path:  { type: 'string', description: 'File path within repo (e.g. "src/research/scorer.ts")' },
+        branch: { type: 'string', description: 'Branch name — defaults to "main"' },
+      },
+      required: ['owner', 'repo', 'path'],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -301,6 +315,7 @@ const TOOL_ROOM_MAP: Record<string, DashboardRoom> = {
   send_email: 'inbox',
   check_inbox: 'inbox',
   read_tweet: 'research',
+  read_github_file: 'engineering',
 };
 
 async function executeTool(name: string, input: Record<string, unknown>, notify?: (msg: string) => Promise<void>): Promise<ToolCallResult> {
@@ -534,6 +549,17 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
       return { toolName: name, output: `**${result.title}**\n\n${result.content}` };
     }
 
+    case 'read_github_file': {
+      const { readGithubFile } = await import('./tools/github-reader.js');
+      const content = await readGithubFile(
+        input.owner as string,
+        input.repo as string,
+        input.path as string,
+        (input.branch as string | undefined) ?? 'main'
+      );
+      return { toolName: name, output: content };
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -587,7 +613,7 @@ export async function think(
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
-    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox', 'read_twitter', 'browse_web'];
+    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox', 'read_twitter', 'browse_web', 'read_github_file'];
     return [
       TOOL_SCHEMAS.self_modify_request,
       TOOL_SCHEMAS.search_knowledge,
@@ -597,6 +623,7 @@ export async function think(
       TOOL_SCHEMAS.check_inbox,
       TOOL_SCHEMAS.read_twitter,
       TOOL_SCHEMAS.browse_web,
+      TOOL_SCHEMAS.read_github_file,
       ...Object.values(TOOL_SCHEMAS).filter(
         t => !alwaysAvailable.includes(t.name) && installedToolIds.has(t.name)
       ),
