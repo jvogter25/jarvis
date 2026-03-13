@@ -96,6 +96,11 @@ const pendingEmailApproval = new Map<string, {
   body: string;
 }>();
 
+const pendingSocialApproval = new Map<string, {
+  drafts: import('../overnight/social-scheduler.js').SocialDraft[];
+  currentIndex: number;
+}>();
+
 function isShipApproval(text: string, slug?: string): boolean {
   const lower = text.toLowerCase().trim();
   const exactPhrases = ['ship it', 'go live', 'approve', 'push it', 'launch it'];
@@ -113,6 +118,20 @@ function isAffirmative(text: string): boolean {
 
 function isNegative(text: string): boolean {
   return NO_WORDS.has(text.toLowerCase().trim());
+}
+
+export function formatSocialDraft(draft: import('../overnight/social-scheduler.js').SocialDraft): string {
+  const platformLabel = draft.platform === 'twitter' ? '🐦 Twitter' : '🟠 Reddit';
+  const agentLabel = draft.agent === 'vantage' ? 'Vantage' : 'Sentinel';
+  const lines = [
+    `**${platformLabel} draft — ${agentLabel}**`,
+    draft.sourceHeadline ? `_Based on: ${draft.sourceHeadline}_` : '',
+    '',
+    draft.text,
+    '',
+    `Say **"post it"** to post, **"skip it"** to skip, or tell me what to change.`,
+  ];
+  return lines.filter(l => l !== '').join('\n');
 }
 
 function buildStatusMessage(): string {
@@ -141,10 +160,13 @@ function buildStatusMessage(): string {
   const prCount = Object.keys(pending.prApprovals).length;
   const previewCount = Object.keys(pending.previewApprovals).length;
   const emailCount = Object.keys(pending.emailApprovals).length;
+  const socialCount = Object.values(Object.fromEntries(pendingSocialApproval))
+    .reduce((sum, entry) => sum + entry.drafts.length - entry.currentIndex, 0);
   if (stagingCount) pendingLines.push(`  • ${stagingCount} staging deploy(s) awaiting "ship it"`);
   if (prCount) pendingLines.push(`  • ${prCount} self-modify PR(s) awaiting approval`);
   if (previewCount) pendingLines.push(`  • ${previewCount} preview(s) awaiting "ship it"`);
   if (emailCount) pendingLines.push(`  • ${emailCount} email draft(s) awaiting "send it"`);
+  if (socialCount > 0) pendingLines.push(`  • ${socialCount} social post draft(s) awaiting "post it"`);
   const pendingStr = pendingLines.length > 0 ? pendingLines.join('\n') : '  None';
 
   return [
@@ -293,7 +315,16 @@ export function getPendingState() {
     prApprovals: Object.fromEntries(pendingPRApproval),
     previewApprovals: Object.fromEntries(pendingPreviewApproval),
     emailApprovals: Object.fromEntries(pendingEmailApproval),
+    socialApprovals: Object.fromEntries(pendingSocialApproval),
   };
+}
+
+export function queueSocialDrafts(
+  channelId: string,
+  drafts: import('../overnight/social-scheduler.js').SocialDraft[]
+): void {
+  if (drafts.length === 0) return;
+  pendingSocialApproval.set(channelId, { drafts, currentIndex: 0 });
 }
 
 export function restorePendingState(state: ReturnType<typeof getPendingState>): void {
@@ -301,6 +332,7 @@ export function restorePendingState(state: ReturnType<typeof getPendingState>): 
   for (const [k, v] of Object.entries(state.prApprovals ?? {})) pendingPRApproval.set(k, v as any);
   for (const [k, v] of Object.entries(state.previewApprovals ?? {})) pendingPreviewApproval.set(k, v as PendingPreviewEntry);
   for (const [k, v] of Object.entries(state.emailApprovals ?? {})) pendingEmailApproval.set(k, v as any);
+  for (const [k, v] of Object.entries(state.socialApprovals ?? {})) pendingSocialApproval.set(k, v as any);
 }
 
 export async function handleMessage(msg: DiscordMessage) {
@@ -336,6 +368,7 @@ export async function handleMessage(msg: DiscordMessage) {
     pendingPRApproval.clear();
     pendingPreviewApproval.clear();
     pendingEmailApproval.clear();
+    pendingSocialApproval.clear();
     const killedLine = sandboxesKilled > 0 ? `\nKilled: ${sandboxesKilled} active sandbox(es)` : '';
     const clearedLine = pendingCleared.length > 0 ? `\nCleared: ${pendingCleared.join(', ')}` : '';
     await msg.channel.send(
@@ -449,6 +482,62 @@ export async function handleMessage(msg: DiscordMessage) {
       return;
     }
     // Conversational — fall through with pending preserved
+  }
+
+  // Check if we're waiting for social post approval
+  const pendingSocial = pendingSocialApproval.get(msg.channelId);
+  if (pendingSocial) {
+    const { drafts, currentIndex } = pendingSocial;
+    const draft = drafts[currentIndex];
+
+    if (msg.content.toLowerCase().trim() === 'post it' || isShipApproval(msg.content)) {
+      await msg.channel.send(`Posting to ${draft.platform} as ${draft.agent}...`);
+      try {
+        const { postToTwitter, postToReddit } = await import('../tools/social-post.js');
+        let result;
+        if (draft.platform === 'twitter') {
+          result = await postToTwitter(draft.agent, draft.text);
+        } else {
+          result = await postToReddit(draft.agent, {
+            subreddit: draft.subreddit ?? 'ethfinance',
+            body: draft.text,
+            replyToUrl: draft.replyToUrl,
+            title: draft.replyToUrl ? undefined : `${draft.agent === 'vantage' ? 'Vantage' : 'Sentinel'} perspective`,
+          });
+        }
+        if (result.success) {
+          await msg.channel.send(`✅ Posted`);
+        } else {
+          await msg.channel.send(`❌ Post failed: ${result.error}`);
+        }
+      } catch (err) {
+        await msg.channel.send(`Post error: ${(err as Error).message}`);
+      }
+
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < drafts.length) {
+        pendingSocialApproval.set(msg.channelId, { drafts, currentIndex: nextIndex });
+        const next = drafts[nextIndex];
+        await msg.channel.send(formatSocialDraft(next));
+      } else {
+        pendingSocialApproval.delete(msg.channelId);
+        await msg.channel.send(`All drafts processed.`);
+      }
+      return;
+
+    } else if (msg.content.toLowerCase().trim() === 'skip it' || isNegative(msg.content)) {
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < drafts.length) {
+        pendingSocialApproval.set(msg.channelId, { drafts, currentIndex: nextIndex });
+        const next = drafts[nextIndex];
+        await msg.channel.send(`Skipped. Next draft:\n\n${formatSocialDraft(next)}`);
+      } else {
+        pendingSocialApproval.delete(msg.channelId);
+        await msg.channel.send(`Skipped. No more drafts.`);
+      }
+      return;
+    }
+    // Fall through — let Jake edit or chat
   }
 
   // Check if we're waiting for email send approval
