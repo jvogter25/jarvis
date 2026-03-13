@@ -148,8 +148,8 @@ async function main() {
     }
   }, { timezone: TZ });
 
-  // Reddit thread monitor — 9am + 3pm PT
-  cron.schedule('0 9,15 * * *', async () => {
+  // Reddit thread monitor — 10am + 4pm PT
+  cron.schedule('0 10,16 * * *', async () => {
     try {
       const { runRedditMonitor } = await import('./overnight/social-scheduler.js');
       const { queueSocialDrafts, formatSocialDraft } = await import('./discord/handlers.js');
