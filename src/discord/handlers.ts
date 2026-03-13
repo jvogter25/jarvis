@@ -126,6 +126,7 @@ export function formatSocialDraft(draft: import('../overnight/social-scheduler.j
   const lines = [
     `**${platformLabel} draft — ${agentLabel}**`,
     draft.sourceHeadline ? `_Based on: ${draft.sourceHeadline}_` : '',
+    draft.replyToUrl ? `🔗 ${draft.replyToUrl}` : '',
     '',
     draft.text,
     '',
@@ -495,7 +496,7 @@ export async function handleMessage(msg: DiscordMessage) {
   }
 
   // Setup social accounts command
-  if (msg.channelId === CHANNELS.MARKETING && msg.content.toLowerCase().trim() === 'setup social accounts') {
+  if (msg.content.toLowerCase().trim() === 'setup social accounts') {
     await msg.channel.send(`Setting up social accounts for Vantage and Sentinel — this will take a few minutes (following ~45 Twitter accounts and subscribing to 10 subreddits for each agent)...`);
     try {
       const { runSocialSetup } = await import('../overnight/social-scheduler.js');

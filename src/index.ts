@@ -129,14 +129,17 @@ async function main() {
     try {
       const { runSocialScheduler } = await import('./overnight/social-scheduler.js');
       const { queueSocialDrafts, formatSocialDraft } = await import('./discord/handlers.js');
+      const { getProjectConfig } = await import('./memory/supabase.js');
       const drafts = await runSocialScheduler();
       if (drafts.length === 0) {
         console.log('[social-scheduler] No drafts generated.');
         return;
       }
-      const marketingChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_MARKETING!).catch(() => null);
+      const project = await getProjectConfig('cashclaw').catch(() => null);
+      const targetChannelId = project?.channels?.marketing ?? process.env.DISCORD_CHANNEL_MARKETING!;
+      const marketingChannel = await discord.channels.fetch(targetChannelId).catch(() => null);
       if (marketingChannel?.isTextBased()) {
-        queueSocialDrafts(process.env.DISCORD_CHANNEL_MARKETING!, drafts);
+        queueSocialDrafts(targetChannelId, drafts);
         const first = drafts[0];
         await (marketingChannel as any).send(
           `📱 **Daily social drafts ready** (${drafts.length} total)\n\n` +
@@ -153,11 +156,14 @@ async function main() {
     try {
       const { runRedditMonitor } = await import('./overnight/social-scheduler.js');
       const { queueSocialDrafts, formatSocialDraft } = await import('./discord/handlers.js');
+      const { getProjectConfig } = await import('./memory/supabase.js');
       const drafts = await runRedditMonitor();
       if (drafts.length === 0) return;
-      const marketingChannel = await discord.channels.fetch(process.env.DISCORD_CHANNEL_MARKETING!).catch(() => null);
+      const project = await getProjectConfig('cashclaw').catch(() => null);
+      const targetChannelId = project?.channels?.marketing ?? process.env.DISCORD_CHANNEL_MARKETING!;
+      const marketingChannel = await discord.channels.fetch(targetChannelId).catch(() => null);
       if (marketingChannel?.isTextBased()) {
-        queueSocialDrafts(process.env.DISCORD_CHANNEL_MARKETING!, drafts);
+        queueSocialDrafts(targetChannelId, drafts);
         const first = drafts[0];
         await (marketingChannel as any).send(
           `🟠 **Reddit reply opportunities** (${drafts.length} found)\n\n` +

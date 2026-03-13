@@ -8,6 +8,19 @@ import { saveOpportunity, getUnpostedOpportunities, markOpportunityPosted, hasOp
 import { CHANNELS } from '../discord/channels.js';
 import { MANUAL_QUEUE } from './manual-queue.js';
 
+function isValidPostTitle(title: string): boolean {
+  if (title.length < 20 || title.length > 300) return false;
+  if (title.startsWith('[')) return false; // markdown nav link
+  if (title.startsWith('http')) return false; // raw URL
+  if (title.startsWith('![')) return false; // markdown image
+  if (title.startsWith('---') || title.startsWith('===')) return false; // separator
+  const noise = ['cookie', 'privacy policy', 'functionality', 'advertising', 'analytics cookies',
+    'stay informed', 'sign up', 'log in', 'indie hackers logo', 'powered by', 'url source:',
+    'warning:', 'performing security', 'security service', 'captcha'];
+  const lower = title.toLowerCase();
+  return !noise.some(n => lower.includes(n));
+}
+
 export async function runResearchLoop(discord: Client): Promise<void> {
   console.log('Research loop: starting scrape...');
 
@@ -21,10 +34,11 @@ export async function runResearchLoop(discord: Client): Promise<void> {
   ]);
 
   const allPosts = [...redditPosts, ...hnPosts, ...bravePosts, ...phPosts, ...ihPosts, ...g2Posts, ...MANUAL_QUEUE];
-  console.log(`Research loop: scoring ${allPosts.length} posts...`);
+  const validPosts = allPosts.filter(p => isValidPostTitle(p.title));
+  console.log(`Research loop: scoring ${validPosts.length} posts (filtered from ${allPosts.length})...`);
 
   const scored: ScoredOpportunity[] = [];
-  for (const post of allPosts) {
+  for (const post of validPosts) {
     if (await hasOpportunityByTitle(post.title)) continue;
     const result = await scorePost(post);
     if (result) scored.push(result);

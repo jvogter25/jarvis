@@ -595,6 +595,10 @@ export interface ThinkOptions {
  * model: 'haiku' for scoring/formatting, 'sonnet' for chat (default), 'opus' for full app builds
  * noTools: true for pure analysis calls (scorer, trainer) — skips tool schema injection
  */
+const CLARIFICATION_DIRECTIVE = `
+IMPORTANT BEHAVIOR: Before taking action on any request that involves building something, running a process, or executing a significant task — ask 1-3 clarifying questions to make sure you understand exactly what Jake wants. Don't assume. State what you're about to do and confirm before executing. This applies especially to: building apps, running research loops, setting up accounts, making external API calls, or anything that takes >30 seconds. For simple conversational questions or status checks, answer directly without needing confirmation.
+`.trim();
+
 export async function think(
   systemPrompt: string,
   history: Message[],
@@ -641,10 +645,11 @@ export async function think(
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
+    const fullSystemPrompt = noTools ? systemPrompt : systemPrompt + '\n\n' + CLARIFICATION_DIRECTIVE;
     const response: Anthropic.Message = await client.messages.stream({
       model: modelId,
       max_tokens: maxTokens,
-      system: systemPrompt,
+      system: fullSystemPrompt,
       messages,
       ...(activeToolSchemas.length > 0 ? { tools: activeToolSchemas } : {}),
     }).finalMessage();
