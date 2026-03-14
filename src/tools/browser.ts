@@ -44,19 +44,20 @@ export interface InteractResult {
 /**
  * Read any Twitter/X URL (tweet, article, thread) using Browserbase + playwright-core.
  * Runs directly in the Railway process — no E2B sandbox, no npm install delay.
- * Logs in automatically with TWITTER_USERNAME + TWITTER_PASSWORD if needed.
+ * Authenticates via pre-baked session cookies (TWITTER_AUTH_TOKEN, TWITTER_CT0, TWITTER_TWID).
  */
 export async function readTwitterContent(url: string): Promise<BrowseResult> {
   const apiKey = process.env.BROWSERBASE_API_KEY;
   const projectId = process.env.BROWSERBASE_PROJECT_ID;
-  const username = process.env.TWITTER_USERNAME;
-  const password = process.env.TWITTER_PASSWORD;
+  const authToken = process.env.TWITTER_AUTH_TOKEN;
+  const ct0 = process.env.TWITTER_CT0;
+  const twid = process.env.TWITTER_TWID;
 
   if (!apiKey || !projectId) {
     return { url, title: '', content: '', error: 'BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set' };
   }
-  if (!username || !password) {
-    return { url, title: '', content: '', error: 'TWITTER_USERNAME or TWITTER_PASSWORD not set in Railway env vars' };
+  if (!authToken || !ct0 || !twid) {
+    return { url, title: '', content: '', error: 'TWITTER_AUTH_TOKEN, TWITTER_CT0, or TWITTER_TWID not set in Railway env vars' };
   }
 
   // Create Browserbase session
@@ -85,67 +86,22 @@ export async function readTwitterContent(url: string): Promise<BrowseResult> {
     const context = browser.contexts()[0] ?? await browser.newContext();
     const page = context.pages()[0] ?? await context.newPage();
 
+    // Inject pre-authenticated cookies before navigating
+    await page.context().addCookies([
+      { name: 'auth_token', value: authToken, domain: 'x.com', path: '/' },
+      { name: 'ct0', value: ct0, domain: 'x.com', path: '/' },
+      { name: 'twid', value: twid, domain: 'x.com', path: '/' },
+    ]);
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-    // Check for login wall
-    const title1 = await page.title();
-    const pageUrl1 = page.url();
-    const pageText1 = await page.evaluate(() => (globalThis as any).document.body?.innerText ?? '');
-    const needsLogin = !!(await page.$('a[href="/login"]'))
-      || !!(await page.$('[data-testid="loginButton"]'))
-      || pageUrl1.includes('login')
-      || title1.toLowerCase().includes('log in')
-      || title1.toLowerCase().includes('sign in')
-      || pageText1.includes('Sign in to X');
-
-    if (needsLogin) {
-      try {
-        await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-        // Username step
-        try {
-          await page.waitForSelector('input[name="text"]', { timeout: 10000 });
-          await page.fill('input[name="text"]', username);
-          await page.click('[data-testid="LoginForm_Next_Button"]');
-        } catch (err) {
-          throw new Error(`login: username step failed — ${(err as Error).message}`);
-        }
-
-        // Username challenge step (email/phone verification Twitter sometimes inserts)
-        try {
-          const challengeInput = await page.waitForSelector('input[data-testid="ocfEnterTextTextInput"]', { timeout: 5000 });
-          if (challengeInput) {
-            await challengeInput.fill(username);
-            await page.click('[data-testid="LoginForm_Next_Button"]');
-          }
-        } catch {
-          // Challenge step not present — continue to password
-        }
-
-        // Password step
-        try {
-          await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-          await page.fill('input[name="password"]', password);
-          await page.click('button[data-testid="LoginForm_Login_Button"]');
-          await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
-        } catch (err) {
-          throw new Error(`login: password step failed — ${(err as Error).message}`);
-        }
-
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      } catch (err) {
-        const msg = (err as Error).message;
-        console.error(`readTwitterContent login error: ${msg}`);
-        await browser.close();
-        return { url, title: '', content: '', error: msg };
-      }
-    }
 
     // Wait for authenticated content to confirm the page loaded properly
     try {
       await page.waitForSelector('[data-testid="primaryColumn"]', { timeout: 15000 });
     } catch {
-      // primaryColumn not found — page may still have partial content, continue
+      console.log('twitter: cookie auth failed - cookies may be expired');
+      await browser.close();
+      return { url, title: '', content: '', error: 'twitter: cookie auth failed - cookies may be expired' };
     }
 
     const title = await page.title();
