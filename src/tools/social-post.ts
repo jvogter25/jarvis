@@ -52,13 +52,49 @@ export async function postToTwitter(
 
     // Log in
     await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('input[name="text"]', { timeout: 10000 });
-    await page.fill('input[name="text"]', email);
-    await page.click('button[role="button"]:has-text("Next")');
-    await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-    await page.fill('input[name="password"]', password);
-    await page.click('button[data-testid="LoginForm_Login_Button"]');
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
+
+    // Username step
+    try {
+      await page.waitForSelector('input[name="text"]', { timeout: 10000 });
+      await page.fill('input[name="text"]', email);
+      await page.click('[data-testid="LoginForm_Next_Button"]');
+    } catch (err) {
+      throw new Error(`twitter-login: username step failed — ${(err as Error).message}`);
+    }
+
+    // Username challenge step (email/phone verification Twitter sometimes inserts)
+    try {
+      const challengeInput = await page.waitForSelector('input[data-testid="ocfEnterTextTextInput"]', { timeout: 5000 });
+      if (challengeInput) {
+        await challengeInput.fill(email);
+        await page.click('[data-testid="LoginForm_Next_Button"]');
+      }
+    } catch {
+      // Challenge step not present — continue to password
+    }
+
+    // Password step
+    try {
+      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+      await page.fill('input[name="password"]', password);
+      await page.click('button[data-testid="LoginForm_Login_Button"]');
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
+    } catch (err) {
+      throw new Error(`twitter-login: password step failed — ${(err as Error).message}`);
+    }
+
+    // Wait for authenticated content
+    try {
+      await page.waitForSelector('[data-testid="primaryColumn"]', { timeout: 15000 });
+    } catch {
+      // primaryColumn not found — page may still have partial content, continue
+    }
+
+    // Detect login wall (login may have failed silently)
+    const postLoginUrl = page.url();
+    if (!!(await page.$('[data-testid="loginButton"]')) || postLoginUrl.includes('login')) {
+      throw new Error('twitter-login: login wall detected after auth — login may have failed');
+    }
 
     // Compose tweet
     await page.goto('https://x.com/compose/tweet', { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -207,13 +243,49 @@ export async function followTwitterAccounts(
 
     // Log in
     await page.goto('https://x.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('input[name="text"]', { timeout: 10000 });
-    await page.fill('input[name="text"]', email);
-    await page.click('button[role="button"]:has-text("Next")');
-    await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-    await page.fill('input[name="password"]', password);
-    await page.click('button[data-testid="LoginForm_Login_Button"]');
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
+
+    // Username step
+    try {
+      await page.waitForSelector('input[name="text"]', { timeout: 10000 });
+      await page.fill('input[name="text"]', email);
+      await page.click('[data-testid="LoginForm_Next_Button"]');
+    } catch (err) {
+      throw new Error(`twitter-login: username step failed — ${(err as Error).message}`);
+    }
+
+    // Username challenge step (email/phone verification Twitter sometimes inserts)
+    try {
+      const challengeInput = await page.waitForSelector('input[data-testid="ocfEnterTextTextInput"]', { timeout: 5000 });
+      if (challengeInput) {
+        await challengeInput.fill(email);
+        await page.click('[data-testid="LoginForm_Next_Button"]');
+      }
+    } catch {
+      // Challenge step not present — continue to password
+    }
+
+    // Password step
+    try {
+      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+      await page.fill('input[name="password"]', password);
+      await page.click('button[data-testid="LoginForm_Login_Button"]');
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 });
+    } catch (err) {
+      throw new Error(`twitter-login: password step failed — ${(err as Error).message}`);
+    }
+
+    // Wait for authenticated content
+    try {
+      await page.waitForSelector('[data-testid="primaryColumn"]', { timeout: 15000 });
+    } catch {
+      // primaryColumn not found — page may still have partial content, continue
+    }
+
+    // Detect login wall (login may have failed silently)
+    const postLoginUrl = page.url();
+    if (!!(await page.$('[data-testid="loginButton"]')) || postLoginUrl.includes('login')) {
+      throw new Error('twitter-login: login wall detected after auth — login may have failed');
+    }
 
     for (const handle of handles) {
       try {
