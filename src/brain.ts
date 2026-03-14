@@ -259,6 +259,33 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['url'],
     },
   },
+  post_twitter: {
+    name: 'post_twitter',
+    description: 'Post a tweet from Vantage or Sentinel\'s Twitter account. Use when Jake asks you to post something.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        agent: { type: 'string', enum: ['vantage', 'sentinel'], description: 'Which agent account to post from' },
+        text: { type: 'string', description: 'Tweet text (max 280 chars)' },
+      },
+      required: ['agent', 'text'],
+    },
+  },
+  post_reddit: {
+    name: 'post_reddit',
+    description: 'Post or reply on Reddit from Vantage or Sentinel\'s account.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        agent: { type: 'string', enum: ['vantage', 'sentinel'] },
+        subreddit: { type: 'string' },
+        body: { type: 'string' },
+        title: { type: 'string', description: 'For new posts only' },
+        replyToUrl: { type: 'string', description: 'Reddit thread URL — if set, this is a reply' },
+      },
+      required: ['agent', 'subreddit', 'body'],
+    },
+  },
   read_github_file: {
     name: 'read_github_file',
     description: 'Read any file from a GitHub repository. Use this FIRST when diagnosing bugs, checking what a PR changed, or reviewing code before proposing fixes. Always read the actual file before drawing conclusions — never guess at file contents.',
@@ -585,6 +612,22 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
       const result = await readTwitterContent(input.url as string);
       if (result.error) return { toolName: name, output: `Twitter read failed: ${result.error}` };
       return { toolName: name, output: `**${result.title}**\n\n${result.content}` };
+    }
+
+    case 'post_twitter': {
+      const { postToTwitter } = await import('./tools/social-post.js');
+      const result = await postToTwitter(input.agent as 'vantage' | 'sentinel', input.text as string);
+      return { toolName: name, output: result.success ? `Posted${result.url ? `: ${result.url}` : ''}` : `Failed: ${result.error}` };
+    }
+    case 'post_reddit': {
+      const { postToReddit } = await import('./tools/social-post.js');
+      const result = await postToReddit(input.agent as 'vantage' | 'sentinel', {
+        subreddit: input.subreddit as string,
+        body: input.body as string,
+        title: input.title as string | undefined,
+        replyToUrl: input.replyToUrl as string | undefined,
+      });
+      return { toolName: name, output: result.success ? `Posted${result.url ? `: ${result.url}` : ''}` : `Failed: ${result.error}` };
     }
 
     case 'read_github_file': {
