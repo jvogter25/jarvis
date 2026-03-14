@@ -300,7 +300,7 @@ export async function loadShutdownState(): Promise<Record<string, unknown> | nul
 
 // ─── Conversation Memory Summarization ───────────────────────────────────────
 
-export const SUMMARY_THRESHOLD = 30;
+export const SUMMARY_THRESHOLD = 80;
 export const RECENCY_WINDOW = 10;
 
 export async function getMessageCount(channelId: string): Promise<number> {

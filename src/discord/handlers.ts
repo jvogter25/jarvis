@@ -747,7 +747,7 @@ export async function handleMessage(msg: DiscordMessage) {
 
   try {
     console.log('Fetching history...');
-    const history = await getRecentMessages(msg.channelId);
+    const history = await getRecentMessages(msg.channelId, 100);
     await saveMessage(msg.channelId, 'user', content);
     maybeCondenseChannel(msg.channelId).catch(() => {}); // async, don't await
 
@@ -776,9 +776,13 @@ export async function handleMessage(msg: DiscordMessage) {
     console.log('Using brain...');
     const systemPrompt = projectChannelConfig?.system_prompt ?? await getSystemPrompt();
     const channelSummary = await getChannelSummary(msg.channelId);
-    const effectiveSystemPrompt = channelSummary
+    let effectiveSystemPrompt = channelSummary
       ? `${systemPrompt}\n\n---\nCONVERSATION HISTORY SUMMARY (older messages):\n${channelSummary}`
       : systemPrompt;
+    if (projectChannelConfig?.github_repo) {
+      const repoSlug = projectChannelConfig.github_repo.replace('https://github.com/', '');
+      effectiveSystemPrompt += `\n\nProject GitHub repo: ${repoSlug} — use list_files/search_code/read_github_file to navigate this codebase.`;
+    }
     // Always post coding progress to #engineering so Jake sees it there, not in #jarvis
     const { getDiscordClient } = await import('./client.js');
     const discordClient = getDiscordClient();

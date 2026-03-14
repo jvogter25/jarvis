@@ -132,6 +132,27 @@ export const TOOLS: ToolDefinition[] = [
     installed: true,
     requiresEnv: ['BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'REDDIT_VANTAGE_USERNAME'],
   },
+  {
+    id: 'list_files',
+    name: 'List GitHub Files',
+    description: 'List files and folders in a GitHub repository directory',
+    installed: true,
+    requiresEnv: ['GITHUB_TOKEN'],
+  },
+  {
+    id: 'search_code',
+    name: 'Search Code',
+    description: 'Search for code within a GitHub repository — like grep across all files',
+    installed: true,
+    requiresEnv: ['GITHUB_TOKEN'],
+  },
+  {
+    id: 'get_logs',
+    name: 'Get Railway Logs',
+    description: 'Fetch recent Railway deployment logs for the Jarvis bot',
+    installed: true,
+    requiresEnv: ['RAILWAY_API_TOKEN', 'RAILWAY_SERVICE_ID'],
+  },
 ];
 
 export function getInstalledTools(): ToolDefinition[] {

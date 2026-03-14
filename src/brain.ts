@@ -273,6 +273,44 @@ const TOOL_SCHEMAS: Record<string, Anthropic.Tool> = {
       required: ['owner', 'repo', 'path'],
     },
   },
+  list_files: {
+    name: 'list_files',
+    description: 'List files and folders in a GitHub repository directory. Use this to navigate a codebase before reading specific files — like running ls on a repo. Returns file names, types (file/dir), and sizes.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        owner: { type: 'string' },
+        repo:  { type: 'string' },
+        path:  { type: 'string', description: 'Directory path — omit or use "" for repo root' },
+        branch: { type: 'string', description: 'Defaults to main' },
+      },
+      required: ['owner', 'repo'],
+    },
+  },
+  search_code: {
+    name: 'search_code',
+    description: 'Search for code within a GitHub repository — like grep across all files. Use this to find where a function is defined, which file handles a feature, or which files import a module. Returns file paths and matching line excerpts.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        owner: { type: 'string' },
+        repo:  { type: 'string' },
+        query: { type: 'string', description: 'Search term — function name, variable, keyword, etc.' },
+      },
+      required: ['owner', 'repo', 'query'],
+    },
+  },
+  get_logs: {
+    name: 'get_logs',
+    description: 'Fetch recent Railway deployment logs for the Jarvis bot. Use this when Jake reports a bug or unexpected behavior — read the actual logs before proposing any fix. Returns the last N log lines.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        lines: { type: 'number', description: 'Number of log lines to return (default 50, max 200)' },
+      },
+      required: [],
+    },
+  },
 };
 
 export interface ToolCallResult {
@@ -560,6 +598,33 @@ async function executeTool(name: string, input: Record<string, unknown>, notify?
       return { toolName: name, output: content };
     }
 
+    case 'list_files': {
+      const { listGithubFiles } = await import('./tools/github-reader.js');
+      const listing = await listGithubFiles(
+        input.owner as string,
+        input.repo as string,
+        (input.path as string | undefined) ?? '',
+        (input.branch as string | undefined) ?? 'main'
+      );
+      return { toolName: name, output: listing };
+    }
+
+    case 'search_code': {
+      const { searchGithubCode } = await import('./tools/github-reader.js');
+      const results = await searchGithubCode(
+        input.owner as string,
+        input.repo as string,
+        input.query as string
+      );
+      return { toolName: name, output: results };
+    }
+
+    case 'get_logs': {
+      const { getRailwayLogs } = await import('./tools/railway.js');
+      const logs = await getRailwayLogs((input.lines as number | undefined) ?? 50);
+      return { toolName: name, output: logs };
+    }
+
     default:
       return { toolName: name, output: `Unknown tool: ${name}` };
   }
@@ -617,7 +682,7 @@ export async function think(
 
   const activeToolSchemas: Anthropic.Tool[] = noTools ? [] : (() => {
     const installedToolIds = new Set(getInstalledTools().map(t => t.id));
-    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox', 'read_twitter', 'browse_web', 'read_github_file'];
+    const alwaysAvailable = ['self_modify_request', 'search_knowledge', 'create_project', 'draft_email', 'send_email', 'check_inbox', 'read_twitter', 'browse_web', 'read_github_file', 'list_files', 'search_code', 'get_logs'];
     return [
       TOOL_SCHEMAS.self_modify_request,
       TOOL_SCHEMAS.search_knowledge,
@@ -628,6 +693,9 @@ export async function think(
       TOOL_SCHEMAS.read_twitter,
       TOOL_SCHEMAS.browse_web,
       TOOL_SCHEMAS.read_github_file,
+      TOOL_SCHEMAS.list_files,
+      TOOL_SCHEMAS.search_code,
+      TOOL_SCHEMAS.get_logs,
       ...Object.values(TOOL_SCHEMAS).filter(
         t => !alwaysAvailable.includes(t.name) && installedToolIds.has(t.name)
       ),
