@@ -13,13 +13,32 @@ export type Message = {
 export async function getRecentMessages(channelId: string, limit = 20): Promise<Message[]> {
   const { data, error } = await supabase
     .from('messages')
-    .select('role, content')
+    .select('role, content, created_at')
     .eq('channel_id', channelId)
     .order('created_at', { ascending: false })
     .limit(limit);
 
   if (error) throw error;
-  return (data ?? []).reverse() as Message[];
+  const rows = (data ?? []).reverse() as Array<{ role: 'user' | 'assistant'; content: string; created_at: string }>;
+
+  // Inject time-gap separators so Claude knows when sessions are distinct
+  const GAP_MINUTES = 30;
+  const messages: Message[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (i > 0) {
+      const prev = new Date(rows[i - 1].created_at).getTime();
+      const curr = new Date(rows[i].created_at).getTime();
+      const gapMinutes = (curr - prev) / 60000;
+      if (gapMinutes >= GAP_MINUTES) {
+        const hours = Math.round(gapMinutes / 60);
+        const label = hours >= 1 ? `${hours} hour${hours !== 1 ? 's' : ''}` : `${Math.round(gapMinutes)} minutes`;
+        messages.push({ role: 'user', content: `[--- ${label} passed ---]` });
+        messages.push({ role: 'assistant', content: 'Understood.' });
+      }
+    }
+    messages.push({ role: rows[i].role, content: rows[i].content });
+  }
+  return messages;
 }
 
 export async function saveMessage(channelId: string, role: 'user' | 'assistant', content: string) {
